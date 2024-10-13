@@ -10,26 +10,33 @@ use clap::Parser;
 #[command(version, about, long_about = None)]
 pub struct Args {
     #[arg(short, long)]
-    pass: Option<String>,
+    pub add: Option<String>,
     #[arg(short, long)]
-    list: Option<String>,
+    pub copy: bool,
     #[arg(short, long)]
-    gen: Option<Option<usize>>,
-    #[arg(num_args = 2, short = 'N', long)]
-    new: Vec<String>,
-    #[arg(short = 'L', long)]
-    lock: bool,
-    #[arg(short = 'U', long)]
-    unlock: bool,
+    pub disallow: Option<Option<String>>,
     #[arg(short, long)]
-    append: Option<String>,
+    pub gen: Option<Option<usize>>,
+    #[arg(short, long)]
+    pub interactive: bool,
+    #[arg(short, long)]
+    pub list: Option<Option<String>>,
+    #[arg(short, long)]
+    pub paste: bool,
+    #[arg(index = 1)]
+    pub path: Option<PathBuf>,
+    #[arg(short, long)]
+    pub remove: Option<String>,
 }
 
 #[derive(SmartDefault, Debug, Deserialize)]
 pub struct Config {
     #[default = "passwords"]
-    default_filename: String,
-    unlock_warning: bool,
+    pub default_path: PathBuf,
+    #[default = 12]
+    pub default_pssw_len: usize,
+    #[default = ""]
+    pub pwd_disallow_char: String,
 }
 
 impl Config {
