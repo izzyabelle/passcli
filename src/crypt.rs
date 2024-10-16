@@ -9,7 +9,7 @@ use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
 use std::{fs, thread};
 
-use crate::{App, Passwords};
+use crate::{Accounts, App};
 
 const KEY_SIZE: u32 = 32;
 const SALT_SIZE: usize = 16;
@@ -32,7 +32,7 @@ pub fn write_encrypted_file(app: &App) -> Result<()> {
     Ok(())
 }
 
-pub fn read_encrypted_file(password: &String, path: &PathBuf) -> Result<Passwords> {
+pub fn read_encrypted_file(password: &String, path: &PathBuf) -> Result<Accounts> {
     // read raw file
     let mut file_data = Vec::new();
     File::open(path)?.read_to_end(&mut file_data)?;
