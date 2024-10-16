@@ -6,27 +6,27 @@ use toml;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, SmartDefault)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    #[arg(short, long)]
-    pub add: Option<String>,
-    #[arg(short, long)]
-    pub copy: bool,
+    // add, remove, list, copy
+    #[arg(index = 1)]
+    pub operation: String,
+    // disallowed characters for password generator
     #[arg(short, long)]
     pub disallow: Option<Option<String>>,
+    // password length for password generator, Some() indicates to use generated password for add
     #[arg(short, long)]
     pub gen: Option<Option<usize>>,
+    // initiates interactive session
     #[arg(short, long)]
     pub interactive: bool,
-    #[arg(short, long)]
-    pub list: Option<Option<String>>,
+    // indicates to paste from clipboard for add
     #[arg(short, long)]
     pub paste: bool,
-    #[arg(index = 1)]
+    // optional path to use instead of config.default_path
+    #[arg(index = 2)]
     pub path: Option<PathBuf>,
-    #[arg(short, long)]
-    pub remove: Option<String>,
 }
 
 #[derive(SmartDefault, Debug, Deserialize)]

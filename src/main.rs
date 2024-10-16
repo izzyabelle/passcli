@@ -26,10 +26,6 @@ fn run() -> i32 {
         }
     };
 
-    // special case for just printing generated password
-    // println!("{}", gen_passwd());
-    // return 0;
-
     // initialise app
     let mut app = match App::new(args, config) {
         Ok(app) => app,
