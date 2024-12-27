@@ -18,58 +18,61 @@ mod crypt;
 type Account = HashMap<String, String>;
 type Accounts = HashMap<String, Account>;
 
+#[derive(Debug)]
+struct App {
+    args: Args,
+    master_pass: String,
+    passwords: Accounts,
+}
+
+impl App {
+    fn new(args: Args) -> Result<Self> {
+        // read target passwords file or create map for new file
+        let mut master_pass = String::new();
+        let passwords = if args.path.exists() {
+            println!();
+            master_pass = rpassword::prompt_password("Enter master password: ")?;
+            read_encrypted_file(&master_pass, &args.path)?
+        } else {
+            println!("File not found, new file will be created");
+            HashMap::new()
+        };
+
+        Ok(Self {
+            args,
+            master_pass,
+            passwords,
+        })
+    }
+}
+
 fn main() {
-    let ret = run();
-    exit(ret);
-}
-
-fn input_prompt(prompt: &str) -> String {
-    // Print a prompt to the user
-    print!("{}", prompt);
-    // Flush stdout to ensure the prompt is displayed before user input
-    io::stdout().flush().unwrap();
-
-    // Create a new String to store the user input
-    let mut input = String::new();
-
-    // Read the user input from stdin
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read line");
-
-    input
-}
-
-fn run() -> i32 {
-    // initialise app
-    let args = Args::parse();
-    let config = match Config::new() {
-        Ok(config) => config,
+    match run() {
+        Ok(ret) => exit(ret),
         Err(err) => {
-            eprintln!("Config not loaded, using default\nerror: {}", err);
-            Config::default()
-        }
-    };
-    let mut app = match App::new(args, config) {
-        Ok(app) => app,
-        Err(err) => {
-            eprintln!("Failed to initialise program\nerror: {}", err);
-            return 1;
-        }
-    };
-
-    handle_cmd(&mut app);
-
-    if app.args.interactive {
-        let mut cmd = String::new();
-        while cmd != "quit" {
-            cmd = input_prompt("Command: ");
-            app.args = Args::parse_from(vec![cmd.clone()]);
-            handle_cmd(&mut app);
+            eprintln!("Exiting with error\nError: {}", err);
+            exit(1);
         }
     }
+}
 
-    0
+fn run() -> Result<i32> {
+    // initialise app
+    let mut app = App::new(Args::parse().configure(Config::new()?)?)?;
+
+    println!("{:#?}", app);
+    // handle_cmd(&mut app)?;
+
+    // if app.args.interactive {
+    //     let mut cmd = String::new();
+    //     while cmd != "quit" {
+    //         cmd = input_prompt("Command: ");
+    //         app.args = Args::parse_from(vec![cmd.clone()]);
+    //         handle_cmd(&mut app);
+    //     }
+    // }
+
+    Ok(0)
 }
 
 fn handle_cmd(app: &mut App) -> Result<()> {
@@ -87,11 +90,6 @@ fn handle_cmd(app: &mut App) -> Result<()> {
 enum PasswordData {
     Account(Account),
     Field(String),
-}
-
-enum EditCmd {
-    Key(String),
-    Value(String),
 }
 
 fn handle_edit(app: &mut App) -> Result<()> {
@@ -112,44 +110,6 @@ fn handle_remove(app: &mut App) -> Result<()> {
 
 fn handle_add(app: &mut App) -> Result<()> {
     todo!()
-}
-
-struct App {
-    args: Args,
-    config: Config,
-    path: PathBuf,
-    master_pass: String,
-    passwords: Accounts,
-}
-
-impl App {
-    fn new(args: Args, config: Config) -> Result<Self> {
-        // use supplied path else default
-        let path = if let Some(path) = &args.path {
-            path.clone()
-        } else {
-            config.default_path.clone()
-        };
-
-        let mut master_pass = String::new();
-        // read target file
-        let passwords = if path.exists() {
-            println!();
-            master_pass = rpassword::prompt_password("Enter master password: ")?;
-            read_encrypted_file(&master_pass, &path)?
-        } else {
-            println!("File not found, new file will be created");
-            HashMap::new()
-        };
-
-        Ok(Self {
-            args,
-            config,
-            path,
-            master_pass,
-            passwords,
-        })
-    }
 }
 
 // generates a password with ascii values between 33-126
