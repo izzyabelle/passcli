@@ -79,6 +79,8 @@ mod crypto_tests {
             ]),
         };
 
+        app.args.path = PathBuf::from("test/crypt_test_file");
+
         write_encrypted_file(&app).unwrap();
         let decrypted_passwords = read_encrypted_file(&app.master_pass, &app.args.path).unwrap();
 

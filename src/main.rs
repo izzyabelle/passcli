@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use clap::{builder::OsStringValueParser, Parser};
 use config::{Args, Config, Ops};
-use crypt::read_encrypted_file;
+use crypt::{read_encrypted_file, write_encrypted_file};
 use rand::prelude::{thread_rng, Rng};
 use rpassword::read_password;
 use std::{
@@ -50,7 +50,7 @@ fn main() {
     match run() {
         Ok(ret) => exit(ret),
         Err(err) => {
-            eprintln!("Exiting with error\nError: {}", err);
+            eprintln!("Exiting with error:\n{}", err);
             exit(1);
         }
     }
@@ -61,7 +61,7 @@ fn run() -> Result<i32> {
     let mut app = App::new(Args::parse().configure(Config::new()?)?)?;
 
     println!("{:#?}", app);
-    // handle_cmd(&mut app)?;
+    handle_cmd(&mut app)?;
 
     // if app.args.interactive {
     //     let mut cmd = String::new();
@@ -72,6 +72,7 @@ fn run() -> Result<i32> {
     //     }
     // }
 
+    write_encrypted_file(&app)?;
     Ok(0)
 }
 
@@ -92,6 +93,10 @@ enum PasswordData {
     Field(String),
 }
 
+fn handle_add(app: &mut App) -> Result<()> {
+    todo!()
+}
+
 fn handle_edit(app: &mut App) -> Result<()> {
     todo!()
 }
@@ -105,10 +110,6 @@ fn handle_copy(app: &mut App) -> Result<()> {
 }
 
 fn handle_remove(app: &mut App) -> Result<()> {
-    todo!()
-}
-
-fn handle_add(app: &mut App) -> Result<()> {
     todo!()
 }
 
