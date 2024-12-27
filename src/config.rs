@@ -12,7 +12,6 @@ pub enum Ops {
     Edit,
     #[default]
     List,
-    Copy,
 }
 
 impl FromStr for Ops {
@@ -23,7 +22,6 @@ impl FromStr for Ops {
             "a" | "add" => Ok(Self::Add),
             "r" | "remove" => Ok(Self::Remove),
             "l" | "list" => Ok(Self::List),
-            "c" | "copy" => Ok(Self::Copy),
             "e" | "edit" => Ok(Self::Edit),
             _ => Err(format!("{} is not a valid operation", s)),
         }
@@ -43,9 +41,9 @@ pub struct Args {
     pub operation: Option<Ops>,
     #[arg(index = 2)]
     pub account: Option<String>,
-    #[arg(index = 3, default_value = DEFAULT_MAIN_FIELD)]
-    pub field: Option<String>,
-    #[arg(index = 4)]
+    #[arg(short, long, default_value = DEFAULT_MAIN_FIELD)]
+    pub field: String,
+    #[arg(index = 3)]
     pub value: Option<String>,
     // disallowed characters for password generator
     #[arg(short, long, default_value = DEFAULT_DISALLOW)]
@@ -57,7 +55,7 @@ pub struct Args {
     #[arg(short, long)]
     pub interactive: bool,
     // indicates that list operation should hide actual passwords
-    #[arg(short, long)]
+    #[arg(long)]
     pub hide: bool,
     // optional path to use instead of config.default_path
     #[arg(long, default_value = DEFAULT_PATH)]
@@ -111,10 +109,12 @@ impl Args {
             self.disallow = config.pwd_disallow_char;
         }
 
-        if let Some(field) = self.field.borrow_mut() {
-            if field == DEFAULT_MAIN_FIELD {
-                *field = config.default_main_field;
-            }
+        if self.field == DEFAULT_MAIN_FIELD {
+            println!(
+                "Default field ('{}') is being used",
+                config.default_main_field
+            );
+            self.field = config.default_main_field;
         }
 
         Ok(self)
