@@ -12,7 +12,7 @@ pub enum Ops {
     Remove,
     Edit,
     #[default]
-    Print,
+    Print(bool),
 }
 
 impl FromStr for Ops {
@@ -22,7 +22,8 @@ impl FromStr for Ops {
         match s.to_lowercase().as_str() {
             "a" | "add" => Ok(Self::Add),
             "r" | "remove" => Ok(Self::Remove),
-            "p" | "list" => Ok(Self::Print),
+            "p" | "print" => Ok(Self::Print(false)),
+            "pa" | "printall" => Ok(Self::Print(true)),
             "e" | "edit" => Ok(Self::Edit),
             _ => Err(format!("{} is not a valid operation", s)),
         }

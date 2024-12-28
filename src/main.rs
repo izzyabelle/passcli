@@ -1,6 +1,7 @@
 #![allow(unused_variables)]
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use colored::*;
 use config::{Args, LocalConfig, Ops};
 use crypt::{read_encrypted_file, write_encrypted_file};
 use dialoguer::{Confirm, Input};
@@ -64,7 +65,7 @@ impl App {
 
 fn main() {
     CombinedLogger::init(vec![TermLogger::new(
-        LevelFilter::Debug,
+        LevelFilter::Error,
         Config::default(),
         TerminalMode::Mixed,
         ColorChoice::Auto,
@@ -107,7 +108,7 @@ fn handle_cmd(app: &mut App) -> Result<()> {
         Some(Ops::Add) => handle_add(app)?,
         Some(Ops::Remove) => handle_remove(app)?,
         Some(Ops::Edit) => handle_edit(app)?,
-        Some(Ops::Print) => handle_print(app)?,
+        Some(Ops::Print(all)) => handle_print(app, all)?,
         None => {}
     }
     Ok(())
@@ -116,11 +117,12 @@ fn handle_cmd(app: &mut App) -> Result<()> {
 /// Add or edit account fields, an empty account can also be added
 fn handle_add(app: &mut App) -> Result<()> {
     // create references for relevant fields
-    let (account, field, gen, disallow) = (
+    let (account, field, gen, disallow, passwords) = (
         &app.args.account,
         &app.args.field,
         &app.args.gen,
         &app.args.disallow,
+        &mut app.passwords,
     );
 
     // early return if there is no account specified and allows reduced nesting
@@ -138,7 +140,7 @@ fn handle_add(app: &mut App) -> Result<()> {
     };
 
     if let Some(value) = value {
-        if let Some(account_map) = app.passwords.get_mut(account) {
+        if let Some(account_map) = passwords.get_mut(account) {
             match account_map.entry(field.clone()) {
                 std::collections::hash_map::Entry::Occupied(mut entry) => {
                     // confirm edit if field is already extant
@@ -159,22 +161,65 @@ fn handle_add(app: &mut App) -> Result<()> {
                 }
             }
         } else {
-            app.passwords.insert(
+            passwords.insert(
                 account.clone(),
                 HashMap::from([(field.clone(), value.clone())]),
             );
             info!("Account and field created");
         }
     } else {
-        app.passwords.insert(account.clone(), HashMap::new());
+        passwords.insert(account.clone(), HashMap::new());
         info!("Empty account initialised");
     }
 
     Ok(())
 }
 
-fn handle_print(app: &mut App) -> Result<()> {
-    todo!()
+fn handle_print(app: &App, all: bool) -> Result<()> {
+    let (account, field, hide, passwords) = (
+        &app.args.account,
+        &app.args.field,
+        &app.args.hide,
+        &app.passwords,
+    );
+
+    if account.is_none() {
+        for (k, v) in passwords.iter() {
+            print_account(k, v, hide)?;
+        }
+        return Ok(());
+    }
+
+    let account = account.as_ref().unwrap();
+
+    if let Some(account_map) = passwords.get(account) {
+        if all {
+            print_account(account, account_map, hide)
+        } else if let Some(password) = account_map.get(field) {
+            if app.args.interactive {
+                println!("{}", password);
+            } else {
+                print!("{}", password);
+            }
+            Ok(())
+        } else {
+            Err(anyhow!("Field doesn't exist"))
+        }
+    } else {
+        Err(anyhow!("Account doesn't exist"))
+    }
+}
+
+fn print_account(name: &str, account: &Account, hide: &bool) -> Result<()> {
+    println!("{}:", name.magenta());
+    for (k, v) in account.iter() {
+        if *hide {
+            println!("    {}", k.green());
+        } else {
+            println!("    {}: {}", k.green(), v);
+        }
+    }
+    Ok(())
 }
 
 fn handle_edit(app: &mut App) -> Result<()> {

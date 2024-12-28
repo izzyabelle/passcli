@@ -1,11 +1,7 @@
 use anyhow::Result;
-use orion::{aead, errors, kdf, pwhash};
-use rand::{thread_rng, Rng};
-use serde_json;
+use orion::{aead, kdf};
 use std::fs::File;
-use std::io::{self, Read, Write};
-use std::num::NonZeroU32;
-use std::os::unix::fs::FileExt;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use crate::{Accounts, App};
