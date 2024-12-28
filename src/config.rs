@@ -1,3 +1,4 @@
+use log::warn;
 use serde::Deserialize;
 use smart_default::SmartDefault;
 use std::{borrow::BorrowMut, fs, path::PathBuf, str::FromStr};
@@ -11,7 +12,7 @@ pub enum Ops {
     Remove,
     Edit,
     #[default]
-    List,
+    Print,
 }
 
 impl FromStr for Ops {
@@ -21,7 +22,7 @@ impl FromStr for Ops {
         match s.to_lowercase().as_str() {
             "a" | "add" => Ok(Self::Add),
             "r" | "remove" => Ok(Self::Remove),
-            "l" | "list" => Ok(Self::List),
+            "p" | "list" => Ok(Self::Print),
             "e" | "edit" => Ok(Self::Edit),
             _ => Err(format!("{} is not a valid operation", s)),
         }
@@ -110,7 +111,7 @@ impl Args {
         }
 
         if self.field == DEFAULT_MAIN_FIELD {
-            println!(
+            warn!(
                 "Default field ('{}') is being used",
                 config.default_main_field
             );
