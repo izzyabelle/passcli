@@ -64,7 +64,7 @@ pub struct Args {
 }
 
 #[derive(SmartDefault, Debug, Deserialize)]
-pub struct Config {
+pub struct LocalConfig {
     #[default(PathBuf::from(DEFAULT_PATH))]
     pub default_path: PathBuf,
     #[default(DEFAULT_GEN_LEN)]
@@ -75,7 +75,7 @@ pub struct Config {
     pub default_main_field: String,
 }
 
-impl Config {
+impl LocalConfig {
     pub fn new() -> Result<Self> {
         if let Some(path) = dirs::config_dir() {
             let path = path.join("passgen\\passgen.toml");
@@ -95,7 +95,7 @@ impl Args {
     /// If no argument has been passed then the field will match
     /// the default and therefore the value from the config file
     /// should be read.
-    pub fn configure(mut self, config: Config) -> Result<Self> {
+    pub fn configure(mut self, config: LocalConfig) -> Result<Self> {
         if self.path == PathBuf::from(DEFAULT_PATH) {
             self.path = config.default_path;
         }

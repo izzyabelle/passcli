@@ -7,7 +7,6 @@ use std::io::{self, Read, Write};
 use std::num::NonZeroU32;
 use std::os::unix::fs::FileExt;
 use std::path::PathBuf;
-use std::{fs, thread};
 
 use crate::{Accounts, App};
 
@@ -18,7 +17,7 @@ const KDF_ITERATIONS: u32 = 3;
 pub fn write_encrypted_file(app: &App) -> Result<()> {
     // generate salt and derive key
     let password = kdf::Password::from_slice(app.master_pass.as_bytes())?;
-    let salt = kdf::Salt::default();
+    let salt = kdf::Salt::generate(SALT_SIZE)?;
     let key = kdf::derive_key(&password, &salt, KDF_ITERATIONS, 1 << 16, KEY_SIZE)?;
 
     // encrypt passwords
@@ -52,14 +51,14 @@ pub fn read_encrypted_file(password: &String, path: &PathBuf) -> Result<Accounts
 mod crypto_tests {
     use std::collections::HashMap;
 
-    use crate::config::{Args, Config};
+    use crate::config::{Args, LocalConfig};
 
     use super::*;
 
     #[test]
     fn test_io() {
         let mut app = App {
-            args: Args::default().configure(Config::default()).unwrap(),
+            args: Args::default().configure(LocalConfig::default()).unwrap(),
             master_pass: String::from("crypto test password"),
             passwords: HashMap::from([
                 (

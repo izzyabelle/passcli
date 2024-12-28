@@ -1,18 +1,13 @@
-use anyhow::{anyhow, Context, Result};
-use clap::{builder::OsStringValueParser, Parser};
-use config::{Args, Config, Ops};
+#![allow(unused_variables)]
+use anyhow::{anyhow, Result};
+use clap::Parser;
+use config::{Args, LocalConfig, Ops};
 use crypt::{read_encrypted_file, write_encrypted_file};
 use dialoguer::{Confirm, Input};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, warn, LevelFilter};
 use rand::prelude::{thread_rng, Rng};
-use rpassword::read_password;
-use std::{
-    collections::HashMap,
-    io::{self, Write},
-    iter::repeat_with,
-    path::PathBuf,
-    process::exit,
-};
+use simplelog::{ColorChoice, CombinedLogger, Config, TermLogger, TerminalMode};
+use std::{collections::HashMap, iter::repeat_with, process::exit};
 
 mod config;
 mod crypt;
@@ -28,10 +23,10 @@ struct App {
 }
 
 impl App {
-    /// Initializes the application by parsing arguments, configuring them,
-    /// and handling the password file.
+    /// Initializes the application by parsing arguments and the config
+    /// file if present, configuring them and handling the password file.
     fn new() -> Result<Self> {
-        let args = Args::parse().configure(Config::new()?)?;
+        let args = Args::parse().configure(LocalConfig::new()?)?;
 
         if args.path.exists() {
             debug!("File found at target path");
@@ -54,7 +49,7 @@ impl App {
                     warn!("Incorrect password\n");
                 }
             }
-            Err(anyhow!("Target file not read successfully")).context("Password attempts exceeded")
+            Err(anyhow!("Password attempts exceeded"))
         } else {
             info!("File not found, new file will be created");
             let master_pass = rpassword::prompt_password("Create master password: ")?;
@@ -68,7 +63,13 @@ impl App {
 }
 
 fn main() {
-    env_logger::init();
+    CombinedLogger::init(vec![TermLogger::new(
+        LevelFilter::Debug,
+        Config::default(),
+        TerminalMode::Mixed,
+        ColorChoice::Auto,
+    )])
+    .unwrap();
     match run() {
         Ok(ret) => exit(ret),
         Err(err) => {
@@ -79,12 +80,9 @@ fn main() {
 }
 
 fn run() -> Result<i32> {
-    // initialise app, parses arguments and then use
     let mut app = App::new()?;
 
-    println!("{:#?}", app);
     handle_cmd(&mut app)?;
-    println!("{:#?}", app);
 
     if app.args.interactive {
         info!("Interactive mode initialised");
@@ -95,10 +93,8 @@ fn run() -> Result<i32> {
             }
             let mut args = vec!["passcli "];
             args.append(&mut cmd.split_whitespace().collect());
-            app.args = Args::parse_from(args).configure(Config::new()?)?;
-            println!("{:#?}", app);
+            app.args = Args::parse_from(args).configure(LocalConfig::new()?)?;
             handle_cmd(&mut app)?;
-            println!("{:#?}", app);
         }
     }
 
@@ -141,11 +137,11 @@ fn handle_add(app: &mut App) -> Result<()> {
         &app.args.value
     };
 
-    // first
     if let Some(value) = value {
         if let Some(account_map) = app.passwords.get_mut(account) {
             match account_map.entry(field.clone()) {
                 std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    // confirm edit if field is already extant
                     if Confirm::new()
                         .with_prompt("This field already has a value, would you like to change it?")
                         .default(true)
