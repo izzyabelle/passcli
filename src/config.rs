@@ -33,7 +33,7 @@ impl FromStr for Ops {
 const DEFAULT_PATH: &str = "test/passwords";
 const DEFAULT_DISALLOW: &str = "";
 const DEFAULT_GEN_LEN: usize = 16;
-const DEFAULT_MAIN_FIELD: &str = "pass";
+pub const DEFAULT_MAIN_FIELD: &str = "pass";
 
 #[derive(Parser, Debug, SmartDefault)]
 #[command(version, about, long_about = None)]

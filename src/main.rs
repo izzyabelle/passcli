@@ -2,13 +2,17 @@
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use colored::*;
-use config::{Args, LocalConfig, Ops};
+use config::{Args, LocalConfig, Ops, DEFAULT_MAIN_FIELD};
 use crypt::{read_encrypted_file, write_encrypted_file};
-use dialoguer::{Confirm, Input};
+use dialoguer::{Confirm, Input, Password};
 use log::{debug, error, info, warn, LevelFilter};
 use rand::prelude::{thread_rng, Rng};
 use simplelog::{ColorChoice, CombinedLogger, Config, TermLogger, TerminalMode};
-use std::{collections::HashMap, iter::repeat_with, process::exit};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    iter::repeat_with,
+    process::exit,
+};
 
 mod config;
 mod crypt;
@@ -33,12 +37,12 @@ impl App {
             debug!("File found at target path");
             for attempt in 0..3 {
                 let prompt = if attempt == 0 {
-                    "Enter master password: ".to_string()
+                    String::from("Enter master password: ")
                 } else {
                     format!("Attempt {}/3: ", attempt + 1)
                 };
 
-                let master_pass = rpassword::prompt_password(&prompt)?;
+                let master_pass = Password::new().with_prompt(&prompt).interact()?;
                 if let Ok(passwords) = read_encrypted_file(&master_pass, &args.path) {
                     debug!("File read successfully");
                     return Ok(Self {
@@ -53,7 +57,7 @@ impl App {
             Err(anyhow!("Password attempts exceeded"))
         } else {
             info!("File not found, new file will be created");
-            let master_pass = rpassword::prompt_password("Create master password: ")?;
+            let master_pass = prompt_password_confirm("Create master password:")?;
             Ok(Self {
                 args,
                 master_pass,
@@ -142,20 +146,19 @@ fn handle_add(app: &mut App) -> Result<()> {
     if let Some(value) = value {
         if let Some(account_map) = passwords.get_mut(account) {
             match account_map.entry(field.clone()) {
-                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                Entry::Occupied(mut entry) => {
                     // confirm edit if field is already extant
-                    if Confirm::new()
-                        .with_prompt("This field already has a value, would you like to change it?")
-                        .default(true)
-                        .interact()?
-                    {
+                    if confirm(
+                        "This field already has a value, would you like to change it?",
+                        true,
+                    )? {
                         entry.insert(value.clone());
                         info!("Field edited");
                     } else {
                         info!("Nothing was changed");
                     }
                 }
-                std::collections::hash_map::Entry::Vacant(entry) => {
+                Entry::Vacant(entry) => {
                     entry.insert(value.clone());
                     info!("Field created");
                 }
@@ -222,12 +225,125 @@ fn print_account(name: &str, account: &Account, hide: &bool) -> Result<()> {
     Ok(())
 }
 
+// needs refactoring, commenting and logging
 fn handle_edit(app: &mut App) -> Result<()> {
-    todo!()
+    let (account, field, hide, value, passwords, master_pass) = (
+        &app.args.account,
+        &app.args.field,
+        &app.args.hide,
+        &app.args.value,
+        &mut app.passwords,
+        &mut app.master_pass,
+    );
+
+    // edit master pass if no account arg passed
+    if account.is_none() {
+        info!("Editing master password");
+        if let Some(value) = value {
+            if confirm("Confirm editing master password", false)? {
+                *master_pass = value.clone();
+            }
+        } else {
+            *master_pass = prompt_password_confirm("Enter new master password")?;
+        }
+    }
+
+    let account = account.as_ref().unwrap();
+
+    let mut account_edit: Option<(String, Account)> = None;
+
+    if let Some(account_map) = passwords.get_mut(account) {
+        if field == DEFAULT_MAIN_FIELD && !confirm("Edit account name", false)? {
+            if !confirm("Edit field name", false)? {
+                match account_map.entry(field.clone()) {
+                    Entry::Occupied(mut entry) => {
+                        if !*hide {
+                            info!("Previous value: {}", *entry.get());
+                        }
+                        entry.insert(if let Some(value) = value {
+                            value.clone()
+                        } else {
+                            prompt_password_confirm("New value")?
+                        });
+                    }
+                    Entry::Vacant(entry) => return Err(anyhow!("No value to edit")),
+                }
+            } else {
+                // needs refactoring for occupied keys
+                if !account_map.contains_key(field) {
+                    return Err(anyhow!("Field doesn't exist"));
+                }
+                let field_value = account_map[field].clone();
+                account_map.insert(
+                    if let Some(value) = value {
+                        value.clone()
+                    } else {
+                        Input::new()
+                            .with_prompt("New account name")
+                            .interact_text()?
+                    },
+                    field_value,
+                );
+                account_map.remove(field);
+            }
+        } else {
+            account_edit = Some((
+                if let Some(value) = value {
+                    value.clone()
+                } else {
+                    Input::new()
+                        .with_prompt("New account name")
+                        .interact_text()?
+                },
+                account_map.clone(),
+            ));
+        }
+    } else {
+        return Err(anyhow!("No value to edit"));
+    }
+
+    if let Some(new_account) = account_edit {
+        // needs refactoring for occupied keys
+        passwords.insert(new_account.0, new_account.1);
+        passwords.remove(account);
+    }
+
+    Ok(())
 }
 
 fn handle_remove(app: &mut App) -> Result<()> {
     todo!()
+}
+
+// helper functions follow
+
+fn confirm(prompt: &str, default: bool) -> Result<bool> {
+    if let Ok(confirm) = Confirm::new()
+        .with_prompt(prompt)
+        .default(default)
+        .interact()
+    {
+        Ok(confirm)
+    } else {
+        Err(anyhow!("Input error"))
+    }
+}
+
+fn prompt_password(prompt: &str) -> Result<String> {
+    if let Ok(pass) = Password::new().with_prompt(prompt).interact() {
+        Ok(pass)
+    } else {
+        Err(anyhow!("Input error"))
+    }
+}
+
+fn prompt_password_confirm(prompt: &str) -> Result<String> {
+    let new_pass = prompt_password(prompt)?;
+    if prompt_password("Confirm password:")? == new_pass {
+        Ok(new_pass)
+    } else {
+        Err(anyhow!("Mismatched password"))
+    }
 }
 
 /// generates a password with ascii values between 33-126

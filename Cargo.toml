@@ -12,7 +12,6 @@ dirs = "5.0.1"
 log = "0.4.22"
 orion = { version = "0.17.7", features = ["serde"] }
 rand = "0.8.5"
-rpassword = "7.3.1"
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.128"
 simplelog = "0.12.2"
