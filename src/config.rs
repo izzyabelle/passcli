@@ -1,7 +1,6 @@
-use log::warn;
 use serde::Deserialize;
 use smart_default::SmartDefault;
-use std::{borrow::BorrowMut, fs, path::PathBuf, str::FromStr};
+use std::{fs, path::PathBuf, str::FromStr};
 
 use anyhow::Result;
 use clap::Parser;
@@ -12,7 +11,8 @@ pub enum Ops {
     Remove,
     Edit,
     #[default]
-    Print(bool),
+    Print,
+    Interactive,
 }
 
 impl FromStr for Ops {
@@ -22,58 +22,54 @@ impl FromStr for Ops {
         match s.to_lowercase().as_str() {
             "a" | "add" => Ok(Self::Add),
             "r" | "remove" => Ok(Self::Remove),
-            "p" | "print" => Ok(Self::Print(false)),
-            "pa" | "printall" => Ok(Self::Print(true)),
+            "p" | "print" => Ok(Self::Print),
             "e" | "edit" => Ok(Self::Edit),
+            "i" | "interactive" => Ok(Self::Interactive),
             _ => Err(format!("{} is not a valid operation", s)),
         }
     }
 }
-
-const DEFAULT_PATH: &str = "test/passwords";
-const DEFAULT_DISALLOW: &str = "";
-const DEFAULT_GEN_LEN: usize = 16;
-pub const DEFAULT_MAIN_FIELD: &str = "pass";
 
 #[derive(Parser, Debug, SmartDefault)]
 #[command(version, about, long_about = None)]
 pub struct Args {
     // add, remove, list, copy
     #[arg(index = 1, value_enum)]
-    pub operation: Option<Ops>,
+    pub operation: Ops,
     #[arg(index = 2)]
     pub account: Option<String>,
-    #[arg(short, long, default_value = DEFAULT_MAIN_FIELD)]
-    pub field: String,
     #[arg(index = 3)]
-    pub value: Option<String>,
+    pub field: Option<String>,
+    #[arg(short, long)]
+    pub value: Option<Option<String>>,
     // disallowed characters for password generator
-    #[arg(short, long, default_value = DEFAULT_DISALLOW)]
-    pub disallow: String,
+    #[arg(short, long)]
+    pub disallow: Option<String>,
     // password length for password generator, Some() indicates to use generated password for add
     #[arg(short, long)]
     pub gen: Option<Option<usize>>,
-    // initiates interactive session
-    #[arg(short, long)]
-    pub interactive: bool,
     // indicates that list operation should hide actual passwords
     #[arg(long)]
     pub hide: bool,
     // optional path to use instead of config.default_path
-    #[arg(long, default_value = DEFAULT_PATH)]
-    pub path: PathBuf,
+    #[arg(long)]
+    pub path: Option<PathBuf>,
+    #[arg(long)]
+    pub pass: Option<String>,
+    #[arg(short, long)]
+    pub all_fields: bool,
 }
 
 #[derive(SmartDefault, Debug, Deserialize)]
 pub struct LocalConfig {
-    #[default(PathBuf::from(DEFAULT_PATH))]
+    #[default(PathBuf::from("test/passwords"))]
     pub default_path: PathBuf,
-    #[default(DEFAULT_GEN_LEN)]
-    pub default_pwd_len: usize,
-    #[default(String::from(DEFAULT_DISALLOW))]
-    pub pwd_disallow_char: String,
-    #[default(String::from(DEFAULT_MAIN_FIELD))]
-    pub default_main_field: String,
+    #[default(16)]
+    pub default_gen: usize,
+    #[default(String::new())]
+    pub default_disallow: String,
+    #[default(String::from("pass"))]
+    pub default_field: String,
 }
 
 impl LocalConfig {
@@ -88,37 +84,5 @@ impl LocalConfig {
         } else {
             Ok(Self::default())
         }
-    }
-}
-
-impl Args {
-    /// Set required values if not supplied by command arguments.
-    /// If no argument has been passed then the field will match
-    /// the default and therefore the value from the config file
-    /// should be read.
-    pub fn configure(mut self, config: LocalConfig) -> Result<Self> {
-        if self.path == PathBuf::from(DEFAULT_PATH) {
-            self.path = config.default_path;
-        }
-
-        if let Some(len) = self.gen.borrow_mut() {
-            if len.is_none() {
-                *len = Some(config.default_pwd_len);
-            }
-        }
-
-        if self.disallow == DEFAULT_DISALLOW {
-            self.disallow = config.pwd_disallow_char;
-        }
-
-        if self.field == DEFAULT_MAIN_FIELD {
-            warn!(
-                "Default field ('{}') is being used",
-                config.default_main_field
-            );
-            self.field = config.default_main_field;
-        }
-
-        Ok(self)
     }
 }

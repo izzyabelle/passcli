@@ -22,7 +22,7 @@ pub fn write_encrypted_file(app: &App) -> Result<()> {
 
     // write data to file with salt unencrypted
     let file_data = serde_json::to_vec(&(salt, ciphertext))?;
-    let mut file = File::create(&app.args.path)?;
+    let mut file = File::create(app.args.path.as_ref().unwrap_or(&app.config.default_path))?;
     file.write_all(&file_data)?;
     Ok(())
 }
@@ -54,7 +54,8 @@ mod crypto_tests {
     #[test]
     fn test_io() {
         let mut app = App {
-            args: Args::default().configure(LocalConfig::default()).unwrap(),
+            args: Args::default(),
+            config: LocalConfig::new().unwrap(),
             master_pass: String::from("crypto test password"),
             passwords: HashMap::from([
                 (
@@ -74,10 +75,11 @@ mod crypto_tests {
             ]),
         };
 
-        app.args.path = PathBuf::from("test/crypt_test_file");
+        app.args.path = Some(PathBuf::from("test/crypt_test_file"));
 
         write_encrypted_file(&app).unwrap();
-        let decrypted_passwords = read_encrypted_file(&app.master_pass, &app.args.path).unwrap();
+        let decrypted_passwords =
+            read_encrypted_file(&app.master_pass, &app.args.path.unwrap()).unwrap();
 
         assert_eq!(app.passwords, decrypted_passwords);
     }

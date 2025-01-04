@@ -2,7 +2,7 @@
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use colored::*;
-use config::{Args, LocalConfig, Ops, DEFAULT_MAIN_FIELD};
+use config::{Args, LocalConfig, Ops};
 use crypt::{read_encrypted_file, write_encrypted_file};
 use dialoguer::{Confirm, Input, Password};
 use log::{debug, error, info, warn, LevelFilter};
@@ -23,32 +23,39 @@ type Accounts = HashMap<String, Account>;
 #[derive(Debug)]
 struct App {
     args: Args,
+    config: LocalConfig,
     master_pass: String,
     passwords: Accounts,
+    interactive: bool,
 }
 
 impl App {
     /// Initializes the application by parsing arguments and the config
     /// file if present, configuring them and handling the password file.
     fn new() -> Result<Self> {
-        let args = Args::parse().configure(LocalConfig::new()?)?;
+        let args = Args::parse();
+        let config = LocalConfig::new()?;
 
-        if args.path.exists() {
+        let path = args.path.as_ref().unwrap_or(&config.default_path);
+
+        if path.exists() {
             debug!("File found at target path");
             for attempt in 0..3 {
                 let prompt = if attempt == 0 {
-                    String::from("Enter master password: ")
+                    String::from("Enter master password")
                 } else {
-                    format!("Attempt {}/3: ", attempt + 1)
+                    format!("Attempt {}/3", attempt + 1)
                 };
 
-                let master_pass = Password::new().with_prompt(&prompt).interact()?;
-                if let Ok(passwords) = read_encrypted_file(&master_pass, &args.path) {
+                let master_pass = prompt_password("Enter master pass")?;
+                if let Ok(passwords) = read_encrypted_file(&master_pass, path) {
                     debug!("File read successfully");
                     return Ok(Self {
                         args,
+                        config,
                         master_pass,
                         passwords,
+                        interactive: false,
                     });
                 } else {
                     warn!("Incorrect password\n");
@@ -57,11 +64,13 @@ impl App {
             Err(anyhow!("Password attempts exceeded"))
         } else {
             info!("File not found, new file will be created");
-            let master_pass = prompt_password_confirm("Create master password:")?;
+            let master_pass = prompt_password_confirm("Create master password")?;
             Ok(Self {
                 args,
+                config,
                 master_pass,
                 passwords: HashMap::new(),
+                interactive: false,
             })
         }
     }
@@ -69,7 +78,7 @@ impl App {
 
 fn main() {
     CombinedLogger::init(vec![TermLogger::new(
-        LevelFilter::Error,
+        LevelFilter::Info,
         Config::default(),
         TerminalMode::Mixed,
         ColorChoice::Auto,
@@ -87,20 +96,25 @@ fn main() {
 fn run() -> Result<i32> {
     let mut app = App::new()?;
 
-    handle_cmd(&mut app)?;
+    match app.args.operation {
+        Ops::Interactive => {
+            info!("Interactive mode initialised");
+            app.interactive = true;
+            loop {
+                let cmd = user_input("cmd")?;
+                if ["quit", "q"].contains(&cmd.as_str()) {
+                    break;
+                }
+                let mut args = vec!["passcli "];
+                args.append(&mut cmd.split_whitespace().collect());
+                app.args = Args::parse_from(args);
 
-    if app.args.interactive {
-        info!("Interactive mode initialised");
-        loop {
-            let cmd: String = Input::new().with_prompt("cmd").interact_text()?;
-            if cmd == "quit" {
-                break;
+                if let Err(e) = handle_cmd(&mut app) {
+                    error!("{}", e);
+                }
             }
-            let mut args = vec!["passcli "];
-            args.append(&mut cmd.split_whitespace().collect());
-            app.args = Args::parse_from(args).configure(LocalConfig::new()?)?;
-            handle_cmd(&mut app)?;
         }
+        _ => handle_cmd(&mut app)?,
     }
 
     write_encrypted_file(&app)?;
@@ -109,11 +123,11 @@ fn run() -> Result<i32> {
 
 fn handle_cmd(app: &mut App) -> Result<()> {
     match app.args.operation {
-        Some(Ops::Add) => handle_add(app)?,
-        Some(Ops::Remove) => handle_remove(app)?,
-        Some(Ops::Edit) => handle_edit(app)?,
-        Some(Ops::Print(all)) => handle_print(app, all)?,
-        None => {}
+        Ops::Add => handle_add(app)?,
+        Ops::Remove => handle_remove(app)?,
+        Ops::Edit => handle_edit(app)?,
+        Ops::Print => handle_print(app)?,
+        Ops::Interactive => {}
     }
     Ok(())
 }
@@ -123,9 +137,13 @@ fn handle_add(app: &mut App) -> Result<()> {
     // create references for relevant fields
     let (account, field, gen, disallow, passwords) = (
         &app.args.account,
-        &app.args.field,
+        app.args.field.as_ref().unwrap_or(&app.config.default_field),
+        // left as arg ref to check if it was passed
         &app.args.gen,
-        &app.args.disallow,
+        app.args
+            .disallow
+            .as_ref()
+            .unwrap_or(&app.config.default_disallow),
         &mut app.passwords,
     );
 
@@ -137,53 +155,52 @@ fn handle_add(app: &mut App) -> Result<()> {
 
     // check if password gen argument was specified and if so override the value
     let value = if let Some(gen) = gen {
-        info!("Password generated");
-        &Some(gen_passwd(&gen.unwrap(), disallow))
+        debug!("Password generated");
+        &Some(Some(gen_passwd(
+            &gen.unwrap_or(app.config.default_gen),
+            disallow,
+        )))
     } else {
         &app.args.value
     };
 
-    if let Some(value) = value {
-        if let Some(account_map) = passwords.get_mut(account) {
-            match account_map.entry(field.clone()) {
-                Entry::Occupied(mut entry) => {
-                    // confirm edit if field is already extant
-                    if confirm(
-                        "This field already has a value, would you like to change it?",
-                        true,
-                    )? {
-                        entry.insert(value.clone());
-                        info!("Field edited");
-                    } else {
-                        info!("Nothing was changed");
-                    }
-                }
-                Entry::Vacant(entry) => {
-                    entry.insert(value.clone());
-                    info!("Field created");
+    if let Some(account_map) = passwords.get_mut(account) {
+        match account_map.entry(field.clone()) {
+            Entry::Occupied(mut entry) => {
+                // confirm edit if field is already extant
+                if confirm(
+                    "This field already has a value, would you like to change it?",
+                    false,
+                )? {
+                    entry.insert(unwrap_or_password(value)?);
+                    info!("Field edited");
+                } else {
+                    info!("Nothing was changed");
                 }
             }
-        } else {
-            passwords.insert(
-                account.clone(),
-                HashMap::from([(field.clone(), value.clone())]),
-            );
-            info!("Account and field created");
+            Entry::Vacant(entry) => {
+                entry.insert(unwrap_or_password(value)?);
+                info!("Field created");
+            }
         }
     } else {
-        passwords.insert(account.clone(), HashMap::new());
-        info!("Empty account initialised");
+        passwords.insert(
+            account.clone(),
+            HashMap::from([(field.clone(), unwrap_or_password(value)?)]),
+        );
+        info!("Account and field created");
     }
 
     Ok(())
 }
 
-fn handle_print(app: &App, all: bool) -> Result<()> {
-    let (account, field, hide, passwords) = (
+fn handle_print(app: &App) -> Result<()> {
+    let (account, field, hide, passwords, all) = (
         &app.args.account,
-        &app.args.field,
+        app.args.field.as_ref().unwrap_or(&app.config.default_field),
         &app.args.hide,
         &app.passwords,
+        &app.args.all_fields,
     );
 
     if account.is_none() {
@@ -196,10 +213,11 @@ fn handle_print(app: &App, all: bool) -> Result<()> {
     let account = account.as_ref().unwrap();
 
     if let Some(account_map) = passwords.get(account) {
-        if all {
+        if *all {
             print_account(account, account_map, hide)
         } else if let Some(password) = account_map.get(field) {
-            if app.args.interactive {
+            // if non interactive then have entire stdout be just the password
+            if app.interactive {
                 println!("{}", password);
             } else {
                 print!("{}", password);
@@ -213,19 +231,11 @@ fn handle_print(app: &App, all: bool) -> Result<()> {
     }
 }
 
-fn print_account(name: &str, account: &Account, hide: &bool) -> Result<()> {
-    println!("{}:", name.magenta());
-    for (k, v) in account.iter() {
-        if *hide {
-            println!("    {}", k.green());
-        } else {
-            println!("    {}: {}", k.green(), v);
-        }
-    }
-    Ok(())
-}
+const PROPERTY_MISSING_EDIT: &str = "No property to edit";
+const PROPERTY_INPUT_PROMPT: &str = "Enter new property";
+const PASSWORD_INPUT_PROMPT: &str = "Enter new password";
 
-// needs refactoring, commenting and logging
+/// Operation to edit properties, requires specific arguments
 fn handle_edit(app: &mut App) -> Result<()> {
     let (account, field, hide, value, passwords, master_pass) = (
         &app.args.account,
@@ -239,67 +249,55 @@ fn handle_edit(app: &mut App) -> Result<()> {
     // edit master pass if no account arg passed
     if account.is_none() {
         info!("Editing master password");
-        if let Some(value) = value {
-            if confirm("Confirm editing master password", false)? {
-                *master_pass = value.clone();
-            }
+        if confirm("Confirm editing master password", false)? {
+            *master_pass = unwrap_or_password(value)?;
         } else {
-            *master_pass = prompt_password_confirm("Enter new master password")?;
+            info!("Nothing was changed");
         }
+        return Ok(());
     }
 
     let account = account.as_ref().unwrap();
 
+    // flags to edit property that args specify
     let mut account_edit: Option<(String, Account)> = None;
 
+    // if user specifies only an account or field, that will be edited
+    // they can pass -v to edit the value without prompting
+    // in order to edit a password they have to specify the account and field and an empty -v
+    // they will then be prompted to enter a new password which will be confirmed
     if let Some(account_map) = passwords.get_mut(account) {
-        if field == DEFAULT_MAIN_FIELD && !confirm("Edit account name", false)? {
-            if !confirm("Edit field name", false)? {
-                match account_map.entry(field.clone()) {
-                    Entry::Occupied(mut entry) => {
-                        if !*hide {
-                            info!("Previous value: {}", *entry.get());
-                        }
-                        entry.insert(if let Some(value) = value {
-                            value.clone()
-                        } else {
-                            prompt_password_confirm("New value")?
-                        });
+        if let Some(field) = field {
+            if let Some(value) = value {
+                // refactor to if let value
+                if value.is_none() {
+                    info!("Editing password");
+                    let prev_password = get_or_error(field, account_map)?;
+                    if !*hide {
+                        println!("Current password is {}", prev_password);
                     }
-                    Entry::Vacant(entry) => return Err(anyhow!("No value to edit")),
+                    account_map.insert(
+                        field.clone(),
+                        prompt_password_confirm("Enter new password")?,
+                    );
+                } else {
+                    info!("Editing field name");
+                    let field_value = get_or_error(field, account_map)?;
+                    account_map.insert(value.clone().unwrap(), field_value.clone());
+                    account_map.remove(field);
                 }
             } else {
-                // needs refactoring for occupied keys
-                if !account_map.contains_key(field) {
-                    return Err(anyhow!("Field doesn't exist"));
-                }
-                let field_value = account_map[field].clone();
-                account_map.insert(
-                    if let Some(value) = value {
-                        value.clone()
-                    } else {
-                        Input::new()
-                            .with_prompt("New account name")
-                            .interact_text()?
-                    },
-                    field_value,
-                );
+                info!("Editing field name");
+                let field_value = get_or_error(field, account_map)?;
+                account_map.insert(user_input(PROPERTY_INPUT_PROMPT)?, field_value.clone());
                 account_map.remove(field);
             }
         } else {
-            account_edit = Some((
-                if let Some(value) = value {
-                    value.clone()
-                } else {
-                    Input::new()
-                        .with_prompt("New account name")
-                        .interact_text()?
-                },
-                account_map.clone(),
-            ));
+            info!("Editing account name");
+            account_edit = Some((unwrap_or_input(value)?, account_map.clone()))
         }
     } else {
-        return Err(anyhow!("No value to edit"));
+        return Err(anyhow!(PROPERTY_MISSING_EDIT));
     }
 
     if let Some(new_account) = account_edit {
@@ -315,31 +313,62 @@ fn handle_remove(app: &mut App) -> Result<()> {
     todo!()
 }
 
-// helper functions follow
+// convenience functions follow
 
-fn confirm(prompt: &str, default: bool) -> Result<bool> {
-    if let Ok(confirm) = Confirm::new()
-        .with_prompt(prompt)
-        .default(default)
-        .interact()
-    {
-        Ok(confirm)
+fn get_or_error(field: &str, map: &Account) -> Result<String> {
+    if let Some(value) = map.get(field) {
+        Ok(value.clone())
     } else {
-        Err(anyhow!("Input error"))
+        Err(anyhow!(PROPERTY_MISSING_EDIT))
     }
 }
 
-fn prompt_password(prompt: &str) -> Result<String> {
-    if let Ok(pass) = Password::new().with_prompt(prompt).interact() {
-        Ok(pass)
+fn unwrap_or_input(value: &Option<Option<String>>) -> Result<String, dialoguer::Error> {
+    if let Some(Some(value)) = value {
+        Ok(value.clone())
     } else {
-        Err(anyhow!("Input error"))
+        user_input(PROPERTY_INPUT_PROMPT)
     }
+}
+
+fn unwrap_or_password(value: &Option<Option<String>>) -> Result<String> {
+    if let Some(Some(value)) = value {
+        Ok(value.clone())
+    } else {
+        prompt_password_confirm(PASSWORD_INPUT_PROMPT)
+    }
+}
+
+fn user_input(prompt: &str) -> Result<String, dialoguer::Error> {
+    Input::new().with_prompt(prompt).interact_text()
+}
+
+fn print_account(name: &str, account: &Account, hide: &bool) -> Result<()> {
+    println!("{}:", name.magenta());
+    for (k, v) in account.iter() {
+        if *hide {
+            println!("    {}", k.green());
+        } else {
+            println!("    {}: {}", k.green(), v);
+        }
+    }
+    Ok(())
+}
+
+fn confirm(prompt: &str, default: bool) -> Result<bool, dialoguer::Error> {
+    Confirm::new()
+        .with_prompt(prompt)
+        .default(default)
+        .interact()
+}
+
+fn prompt_password(prompt: &str) -> Result<String, dialoguer::Error> {
+    Password::new().with_prompt(prompt).interact()
 }
 
 fn prompt_password_confirm(prompt: &str) -> Result<String> {
     let new_pass = prompt_password(prompt)?;
-    if prompt_password("Confirm password:")? == new_pass {
+    if prompt_password("Confirm password")? == new_pass {
         Ok(new_pass)
     } else {
         Err(anyhow!("Mismatched password"))
