@@ -137,13 +137,13 @@ fn handle_cmd(app: &mut App) -> Result<()> {
     Ok(())
 }
 
-const ARGUMENT_NOT_FOUND: &str = "Argument not found:";
+const ARGUMENT_NOT_FOUND: &str = "Argument not found: ";
 const PROPERTY_INPUT_PROMPT: &str = "Enter new property";
 const PASSWORD_INPUT_PROMPT: &str = "Enter new password";
-const CONFIRM_DELETION_PROMPT: &str = "Confirm deletion of the";
+const CONFIRM_DELETION_PROMPT: &str = "Confirm deletion of the ";
 const CONFIRM_OVERWRITE_PROMPT: &str = "Confirm overwrite";
-const ACCOUNT: &str = "account";
-const FIELD: &str = "field";
+const ACCOUNT: &str = "account ";
+const FIELD: &str = "field ";
 
 /// Add or edit account fields, an empty account can also be added
 fn handle_add(app: &mut App) -> Result<()> {
@@ -252,7 +252,7 @@ fn handle_edit(app: &mut App) -> Result<()> {
         &mut app.master_pass,
     );
 
-    // edit master pass if no account arg passed
+    // Edit master pass if no account arg passed
     if account.is_none() {
         if confirm("Confirm editing master password", false)? {
             *master_pass = unwrap_or_password(value)?;
@@ -264,20 +264,16 @@ fn handle_edit(app: &mut App) -> Result<()> {
 
     let account = account.as_ref().unwrap();
 
-    // flags to edit property that args specify
-    let mut account_edit: Option<(String, Account)> = None;
-
-    // if user specifies only an account or field, that will be edited
-    // they can pass -v to edit the value without prompting
-    // in order to edit a password they have to specify the account and field and an empty -v
-    // they will then be prompted to enter a new password which will be confirmed
-    if let Some(account_map) = passwords.get_mut(account) {
+    // If user specifies only an account or field, that will be edited
+    // They can pass -v to edit the value without prompting
+    // In order to edit a password they have to specify the account and field and an empty -v
+    // They will then be prompted to enter a new password which will be confirmed
+    if let Some((account_key, mut account_map)) = passwords.remove_entry(account) {
         if let Some(field) = field {
             if let Some(value) = value {
-                // refactor to if let value
                 if value.is_none() {
                     info!("Editing password");
-                    let prev_password = get_or_error(field, account_map)?;
+                    let prev_password = get_or_error(field, &account_map)?;
                     if !*hide {
                         println!("Current password is {}", prev_password);
                     }
@@ -287,27 +283,27 @@ fn handle_edit(app: &mut App) -> Result<()> {
                     );
                 } else {
                     info!("Editing field name");
-                    let field_value = get_or_error(field, account_map)?;
+                    let field_value = get_or_error(field, &account_map)?;
                     account_map.insert(value.clone().unwrap(), field_value.clone());
                     account_map.remove(field);
                 }
             } else {
-                let field_value = get_or_error(field, account_map)?;
+                // also edits field name but no need for info! because user is prompted
+                let field_value = get_or_error(field, &account_map)?;
                 account_map.insert(user_input(PROPERTY_INPUT_PROMPT)?, field_value.clone());
                 account_map.remove(field);
             }
         } else {
             info!("Editing account name");
-            account_edit = Some((unwrap_or_input(value)?, account_map.clone()))
+            let new_account_name = unwrap_or_input(value)?;
+            passwords.insert(new_account_name, account_map);
+            return Ok(());
         }
+
+        // Reinsert the modified account_map
+        passwords.insert(account_key, account_map);
     } else {
         return Err(anyhow!("{}{}", ARGUMENT_NOT_FOUND, account));
-    }
-
-    if let Some(new_account) = account_edit {
-        // needs refactoring for occupied keys
-        passwords.insert(new_account.0, new_account.1);
-        passwords.remove(account);
     }
 
     Ok(())
@@ -335,7 +331,7 @@ fn handle_remove(app: &mut App) -> Result<()> {
             Some(field) => {
                 if account_map.contains_key(field) {
                     if confirm(
-                        &format!("{} {} {}", CONFIRM_DELETION_PROMPT, FIELD, field),
+                        &format!("{}{}{}", CONFIRM_DELETION_PROMPT, FIELD, field),
                         false,
                     )? {
                         account_map.remove(field);
@@ -343,14 +339,14 @@ fn handle_remove(app: &mut App) -> Result<()> {
                 } else {
                     // Reinsert account before returning error
                     passwords.insert(account_key, account_map);
-                    return Err(anyhow!("{} {}", ARGUMENT_NOT_FOUND, FIELD));
+                    return Err(anyhow!("{}{}", ARGUMENT_NOT_FOUND, FIELD));
                 }
                 // Reinsert the modified account_map
                 passwords.insert(account_key, account_map);
             }
             None => {
                 if !confirm(
-                    &format!("{} {} {}", CONFIRM_DELETION_PROMPT, ACCOUNT, account),
+                    &format!("{}{}{}", CONFIRM_DELETION_PROMPT, ACCOUNT, account),
                     false,
                 )? {
                     passwords.insert(account_key, account_map);
@@ -358,7 +354,7 @@ fn handle_remove(app: &mut App) -> Result<()> {
             }
         }
     } else {
-        return Err(anyhow!("{} {}", ARGUMENT_NOT_FOUND, ACCOUNT));
+        return Err(anyhow!("{}{}", ARGUMENT_NOT_FOUND, ACCOUNT));
     }
 
     Ok(())
@@ -366,34 +362,37 @@ fn handle_remove(app: &mut App) -> Result<()> {
 
 // convenience functions follow
 
+/// gets value from an Account or returns an error
 fn get_or_error(field: &str, map: &Account) -> Result<String> {
-    if let Some(value) = map.get(field) {
-        Ok(value.clone())
-    } else {
-        Err(anyhow!(ARGUMENT_NOT_FOUND))
-    }
+    map.get(field)
+        .cloned()
+        .ok_or_else(|| anyhow!(ARGUMENT_NOT_FOUND))
 }
 
+/// unwraps a value from args or prompts user for input
 fn unwrap_or_input(value: &Option<Option<String>>) -> Result<String, dialoguer::Error> {
-    if let Some(Some(value)) = value {
-        Ok(value.clone())
+    if let Some(Some(v)) = value {
+        Ok(v.clone())
     } else {
         user_input(PROPERTY_INPUT_PROMPT)
     }
 }
 
+/// unwraps a value from args or prompts user for password with confirmation
 fn unwrap_or_password(value: &Option<Option<String>>) -> Result<String> {
-    if let Some(Some(value)) = value {
-        Ok(value.clone())
+    if let Some(Some(v)) = value {
+        Ok(v.clone())
     } else {
         prompt_password_confirm(PASSWORD_INPUT_PROMPT)
     }
 }
 
+/// shortened dialoguer user input prompt
 fn user_input(prompt: &str) -> Result<String, dialoguer::Error> {
     Input::new().with_prompt(prompt).interact_text()
 }
 
+/// prints Account aesthetically, passwords hidden if specified
 fn print_account(name: &str, account: &Account, hide: &bool) -> Result<()> {
     println!("{}:", name.magenta());
     for (k, v) in account.iter() {
@@ -406,6 +405,7 @@ fn print_account(name: &str, account: &Account, hide: &bool) -> Result<()> {
     Ok(())
 }
 
+/// shortened dialoguer confirmation prompt
 fn confirm(prompt: &str, default: bool) -> Result<bool, dialoguer::Error> {
     Confirm::new()
         .with_prompt(prompt)
@@ -413,10 +413,12 @@ fn confirm(prompt: &str, default: bool) -> Result<bool, dialoguer::Error> {
         .interact()
 }
 
+/// shortened dialoguer password prompt
 fn prompt_password(prompt: &str) -> Result<String, dialoguer::Error> {
     Password::new().with_prompt(prompt).interact()
 }
 
+/// prompts for password twice and only returns Ok if they match
 fn prompt_password_confirm(prompt: &str) -> Result<String> {
     let new_pass = prompt_password(prompt)?;
     if prompt_password("Confirm password")? == new_pass {
