@@ -60,6 +60,8 @@ pub struct Args {
     pub all_fields: bool,
     #[arg(short, long)]
     pub force: bool,
+    #[arg(long)]
+    pub new_password: Option<String>,
 }
 
 #[derive(SmartDefault, Debug, Deserialize)]

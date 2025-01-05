@@ -146,16 +146,18 @@ const FIELD: &str = "field ";
 /// Add or edit account fields, an empty account can also be added
 fn handle_add(app: &mut App) -> Result<()> {
     // create references for relevant fields
-    let (account_arg, field_arg, gen_arg, disallow, force_arg, passwords) = (
+    let (account_arg, field_arg, gen_arg, force_arg, hide, interactive, disallow, passwords) = (
         &app.args.account,
         app.args.field.as_ref().unwrap_or(&app.config.default_field),
         // left as arg ref to check if it was passed
         &app.args.gen,
+        &app.args.force,
+        &app.args.hide,
+        &app.interactive,
         app.args
             .disallow
             .as_ref()
             .unwrap_or(&app.config.default_disallow),
-        &app.args.force,
         &mut app.passwords,
     );
 
@@ -171,6 +173,8 @@ fn handle_add(app: &mut App) -> Result<()> {
         &Some(Some(gen_passwd(
             &gen.unwrap_or(app.config.default_gen),
             disallow,
+            interactive,
+            hide,
         )))
     } else {
         &app.args.value
@@ -242,35 +246,56 @@ fn handle_print(app: &App) -> Result<()> {
 
 /// Operation to edit properties, requires specific arguments
 fn handle_edit(app: &mut App) -> Result<()> {
-    let (account, field, hide, value, force_arg, passwords, master_pass) = (
+    let (
+        account_arg,
+        field_arg,
+        hide,
+        value_arg,
+        force_arg,
+        new_password_arg,
+        gen_arg,
+        interactive,
+        disallow,
+        passwords,
+        master_pass,
+    ) = (
         &app.args.account,
         &app.args.field,
         &app.args.hide,
         &app.args.value,
         &app.args.force,
+        &app.args.new_password,
+        &app.args.gen,
+        &app.interactive,
+        app.args
+            .disallow
+            .as_ref()
+            .unwrap_or(&app.config.default_disallow),
         &mut app.passwords,
         &mut app.master_pass,
     );
 
     // Edit master pass if no account arg passed
-    if account.is_none() {
+    if account_arg.is_none() {
         if confirm("Confirm editing master password", false, force_arg)? {
-            *master_pass = unwrap_or_password(value)?;
+            *master_pass = unwrap_or_password(value_arg)?;
         } else {
             info!("Nothing was changed");
         }
         return Ok(());
     }
 
-    let account = account.as_ref().unwrap();
+    let account = account_arg.as_ref().unwrap();
 
     // If user specifies only an account or field, that will be edited
-    // They can pass -v to edit the value without prompting
+    // They can pass -v with a value to edit the value without prompting
     // In order to edit a password they have to specify the account and field and an empty -v
     // They will then be prompted to enter a new password which will be confirmed
+    // If they wish to edit the password without prompting they need to follow the prev
+    // steps but also pass either a --new-password or -g
     if let Some((account_key, mut account_map)) = passwords.remove_entry(account) {
-        if let Some(field) = field {
-            if let Some(value) = value {
+        if let Some(field) = field_arg {
+            if let Some(value) = value_arg {
                 if value.is_none() {
                     info!("Editing password");
                     let prev_password = get_or_error(field, &account_map)?;
@@ -279,7 +304,18 @@ fn handle_edit(app: &mut App) -> Result<()> {
                     }
                     account_map.insert(
                         field.clone(),
-                        prompt_password_confirm("Enter new password")?,
+                        if let Some(gen_arg_value) = gen_arg {
+                            gen_passwd(
+                                &gen_arg_value.unwrap_or(app.config.default_gen),
+                                disallow,
+                                interactive,
+                                hide,
+                            )
+                        } else if let Some(new_password) = new_password_arg {
+                            new_password.clone()
+                        } else {
+                            prompt_password_confirm("Enter new password")?
+                        },
                     );
                 } else {
                     info!("Editing field name");
@@ -295,7 +331,7 @@ fn handle_edit(app: &mut App) -> Result<()> {
             }
         } else {
             info!("Editing account name");
-            let new_account_name = unwrap_or_input(value)?;
+            let new_account_name = unwrap_or_input(value_arg)?;
             passwords.insert(new_account_name, account_map);
             return Ok(());
         }
@@ -443,14 +479,20 @@ fn prompt_password_confirm(prompt: &str) -> Result<String> {
 
 /// generates a password with ascii values between 33-126
 /// barring any characters that are disallowed
-fn gen_passwd(len: &usize, disallow: &str) -> String {
+fn gen_passwd(len: &usize, disallow: &str, interactive: &bool, hide: &bool) -> String {
     let mut rng = thread_rng();
     let allowed_chars: Vec<u8> = (33..=126)
         .filter(|&c| !disallow.contains(c as char))
         .collect();
 
-    repeat_with(|| allowed_chars[rng.gen_range(0..allowed_chars.len())])
+    let password: String = repeat_with(|| allowed_chars[rng.gen_range(0..allowed_chars.len())])
         .take(*len)
         .map(|c| c as char)
-        .collect()
+        .collect();
+
+    if !*interactive && !*hide {
+        println!("{}", password);
+    }
+
+    password
 }
