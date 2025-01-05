@@ -35,7 +35,7 @@ impl FromStr for Ops {
 pub struct Args {
     // add, remove, list, copy
     #[arg(index = 1, value_enum)]
-    pub operation: Ops,
+    pub operation: Option<Ops>,
     #[arg(index = 2)]
     pub account: Option<String>,
     #[arg(index = 3)]

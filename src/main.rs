@@ -97,7 +97,7 @@ fn run() -> Result<i32> {
     let mut app = App::new()?;
 
     match app.args.operation {
-        Ops::Interactive => {
+        Some(Ops::Interactive) => {
             info!("Interactive mode initialised");
             app.interactive = true;
             loop {
@@ -117,7 +117,7 @@ fn run() -> Result<i32> {
         _ => handle_cmd(&mut app)?,
     }
 
-    if let Ops::Print = app.args.operation {
+    if let Some(Ops::Print) | None = app.args.operation {
     } else {
         write_encrypted_file(&app)?;
     }
@@ -126,11 +126,11 @@ fn run() -> Result<i32> {
 
 fn handle_cmd(app: &mut App) -> Result<()> {
     match &app.args.operation {
-        Ops::Add => handle_add(app)?,
-        Ops::Remove => handle_remove(app)?,
-        Ops::Edit => handle_edit(app)?,
-        Ops::Print => handle_print(app)?,
-        Ops::Interactive => {}
+        Some(Ops::Add) => handle_add(app)?,
+        Some(Ops::Remove) => handle_remove(app)?,
+        Some(Ops::Edit) => handle_edit(app)?,
+        Some(Ops::Print) | None => handle_print(app)?,
+        Some(Ops::Interactive) => {}
     }
     Ok(())
 }
