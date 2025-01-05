@@ -117,7 +117,10 @@ fn run() -> Result<i32> {
         _ => handle_cmd(&mut app)?,
     }
 
-    write_encrypted_file(&app)?;
+    if let Ops::Print = app.args.operation {
+    } else {
+        write_encrypted_file(&app)?;
+    }
     Ok(0)
 }
 
@@ -129,11 +132,6 @@ fn handle_cmd(app: &mut App) -> Result<()> {
         Ops::Print => handle_print(app)?,
         Ops::Interactive => {}
     }
-    if let Ops::Interactive = &app.args.operation {
-    } else {
-        info!("Operation executed");
-    }
-
     Ok(())
 }
 
@@ -148,7 +146,7 @@ const FIELD: &str = "field ";
 /// Add or edit account fields, an empty account can also be added
 fn handle_add(app: &mut App) -> Result<()> {
     // create references for relevant fields
-    let (account, field, gen, disallow, passwords) = (
+    let (account_arg, field_arg, gen_arg, disallow, force_arg, passwords) = (
         &app.args.account,
         app.args.field.as_ref().unwrap_or(&app.config.default_field),
         // left as arg ref to check if it was passed
@@ -157,17 +155,18 @@ fn handle_add(app: &mut App) -> Result<()> {
             .disallow
             .as_ref()
             .unwrap_or(&app.config.default_disallow),
+        &app.args.force,
         &mut app.passwords,
     );
 
     // refactor to allow entering account and password via prompting
-    if account.is_none() {
+    if account_arg.is_none() {
         return Err(anyhow!("Insufficient arguments supplied"));
     }
-    let account = account.as_ref().unwrap();
+    let account = account_arg.as_ref().unwrap();
 
     // check if password gen argument was specified and if so override the value
-    let value = if let Some(gen) = gen {
+    let value = if let Some(gen) = gen_arg {
         debug!("Password generated");
         &Some(Some(gen_passwd(
             &gen.unwrap_or(app.config.default_gen),
@@ -178,10 +177,10 @@ fn handle_add(app: &mut App) -> Result<()> {
     };
 
     if let Some(account_map) = passwords.get_mut(account) {
-        match account_map.entry(field.clone()) {
+        match account_map.entry(field_arg.clone()) {
             Entry::Occupied(mut entry) => {
                 // confirm edit if field is already extant
-                if confirm(CONFIRM_OVERWRITE_PROMPT, false)? {
+                if confirm(CONFIRM_OVERWRITE_PROMPT, false, force_arg)? {
                     entry.insert(unwrap_or_password(value)?);
                     info!("Field edited");
                 } else {
@@ -196,7 +195,7 @@ fn handle_add(app: &mut App) -> Result<()> {
     } else {
         passwords.insert(
             account.clone(),
-            HashMap::from([(field.clone(), unwrap_or_password(value)?)]),
+            HashMap::from([(field_arg.clone(), unwrap_or_password(value)?)]),
         );
         info!("Account and field created");
     }
@@ -227,7 +226,7 @@ fn handle_print(app: &App) -> Result<()> {
             print_account(account, account_map, hide)
         } else if let Some(password) = account_map.get(field) {
             // if non interactive then have entire stdout be just the password
-            if app.interactive {
+            if !app.interactive {
                 println!("{}", password);
             } else {
                 print!("{}", password);
@@ -243,18 +242,19 @@ fn handle_print(app: &App) -> Result<()> {
 
 /// Operation to edit properties, requires specific arguments
 fn handle_edit(app: &mut App) -> Result<()> {
-    let (account, field, hide, value, passwords, master_pass) = (
+    let (account, field, hide, value, force_arg, passwords, master_pass) = (
         &app.args.account,
         &app.args.field,
         &app.args.hide,
         &app.args.value,
+        &app.args.force,
         &mut app.passwords,
         &mut app.master_pass,
     );
 
     // Edit master pass if no account arg passed
     if account.is_none() {
-        if confirm("Confirm editing master password", false)? {
+        if confirm("Confirm editing master password", false, force_arg)? {
             *master_pass = unwrap_or_password(value)?;
         } else {
             info!("Nothing was changed");
@@ -310,29 +310,37 @@ fn handle_edit(app: &mut App) -> Result<()> {
 }
 
 fn handle_remove(app: &mut App) -> Result<()> {
-    let (account, field, passwords) = (&app.args.account, &app.args.field, &mut app.passwords);
+    let (account_arg, field_arg, force_arg, passwords) = (
+        &app.args.account,
+        &app.args.field,
+        &app.args.force,
+        &mut app.passwords,
+    );
 
-    if account.is_none() {
+    if account_arg.is_none() {
         if confirm(
             "No account specified, would you like to delete the entire database?",
             false,
+            force_arg,
         )? && confirm(
             "Are you sure you would like to delete all your passwords?",
             false,
+            force_arg,
         )? {
             *passwords = HashMap::new();
         }
         return Ok(());
     }
-    let account = account.as_ref().unwrap();
+    let account = account_arg.as_ref().unwrap();
 
     if let Some((account_key, mut account_map)) = passwords.remove_entry(account) {
-        match field {
+        match field_arg {
             Some(field) => {
                 if account_map.contains_key(field) {
                     if confirm(
                         &format!("{}{}{}", CONFIRM_DELETION_PROMPT, FIELD, field),
                         false,
+                        force_arg,
                     )? {
                         account_map.remove(field);
                     }
@@ -348,6 +356,7 @@ fn handle_remove(app: &mut App) -> Result<()> {
                 if !confirm(
                     &format!("{}{}{}", CONFIRM_DELETION_PROMPT, ACCOUNT, account),
                     false,
+                    force_arg,
                 )? {
                     passwords.insert(account_key, account_map);
                 }
@@ -406,11 +415,15 @@ fn print_account(name: &str, account: &Account, hide: &bool) -> Result<()> {
 }
 
 /// shortened dialoguer confirmation prompt
-fn confirm(prompt: &str, default: bool) -> Result<bool, dialoguer::Error> {
-    Confirm::new()
-        .with_prompt(prompt)
-        .default(default)
-        .interact()
+fn confirm(prompt: &str, default: bool, force: &bool) -> Result<bool, dialoguer::Error> {
+    if *force {
+        Ok(true)
+    } else {
+        Confirm::new()
+            .with_prompt(prompt)
+            .default(default)
+            .interact()
+    }
 }
 
 /// shortened dialoguer password prompt

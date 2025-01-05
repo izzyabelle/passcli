@@ -58,6 +58,8 @@ pub struct Args {
     pub pass: Option<String>,
     #[arg(short, long)]
     pub all_fields: bool,
+    #[arg(short, long)]
+    pub force: bool,
 }
 
 #[derive(SmartDefault, Debug, Deserialize)]

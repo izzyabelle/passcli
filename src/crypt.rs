@@ -1,4 +1,6 @@
 use anyhow::Result;
+use base64::engine::general_purpose;
+use base64::Engine;
 use orion::{aead, kdf};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -21,9 +23,12 @@ pub fn write_encrypted_file(app: &App) -> Result<()> {
     let ciphertext = aead::seal(&key, &passwords)?;
 
     // write data to file with salt unencrypted
-    let file_data = serde_json::to_vec(&(salt, ciphertext))?;
+    let tuple_data = serde_json::to_vec(&(salt, ciphertext))?;
+
+    let encoded_data = general_purpose::STANDARD.encode(&tuple_data);
+
     let mut file = File::create(app.args.path.as_ref().unwrap_or(&app.config.default_path))?;
-    file.write_all(&file_data)?;
+    file.write_all(encoded_data.as_bytes())?;
     Ok(())
 }
 
@@ -31,7 +36,8 @@ pub fn read_encrypted_file(password: &String, path: &PathBuf) -> Result<Accounts
     // read raw file
     let mut file_data = Vec::new();
     File::open(path)?.read_to_end(&mut file_data)?;
-    let (salt, passwords): (Vec<u8>, Vec<u8>) = serde_json::from_slice(&file_data)?;
+    let decoded_data = general_purpose::STANDARD.decode(file_data)?;
+    let (salt, passwords): (Vec<u8>, Vec<u8>) = serde_json::from_slice(&decoded_data)?;
 
     // derive key from password and salt
     let salt = kdf::Salt::from_slice(&salt)?;
@@ -73,6 +79,7 @@ mod crypto_tests {
                     ]),
                 ),
             ]),
+            interactive: false,
         };
 
         app.args.path = Some(PathBuf::from("test/crypt_test_file"));
