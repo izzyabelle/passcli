@@ -279,13 +279,21 @@ fn handle_edit(app: &mut App) -> Result<()> {
     if account_arg.is_none() {
         if confirm("Confirm editing master password", false, force_arg)? {
             *master_pass = unwrap_or_password(value_arg)?;
-        } else {
-            info!("Nothing was changed");
         }
         return Ok(());
     }
 
     let account = account_arg.as_ref().unwrap();
+
+    // prepare genned password to simplify nested code
+    let genned_password = gen_arg.map(|gen_arg_value| {
+        gen_passwd(
+            &gen_arg_value.unwrap_or(app.config.default_gen),
+            disallow,
+            interactive,
+            hide,
+        )
+    });
 
     // If user specifies only an account or field, that will be edited
     // They can pass -v with a value to edit the value without prompting
@@ -295,8 +303,8 @@ fn handle_edit(app: &mut App) -> Result<()> {
     // steps but also pass either a --new-password or -g
     if let Some((account_key, mut account_map)) = passwords.remove_entry(account) {
         if let Some(field) = field_arg {
-            if let Some(value) = value_arg {
-                if value.is_none() {
+            match value_arg {
+                Some(None) => {
                     info!("Editing password");
                     let prev_password = get_or_error(field, &account_map)?;
                     if !*hide {
@@ -304,42 +312,50 @@ fn handle_edit(app: &mut App) -> Result<()> {
                     }
                     account_map.insert(
                         field.clone(),
-                        if let Some(gen_arg_value) = gen_arg {
-                            gen_passwd(
-                                &gen_arg_value.unwrap_or(app.config.default_gen),
-                                disallow,
-                                interactive,
-                                hide,
-                            )
-                        } else if let Some(new_password) = new_password_arg {
-                            new_password.clone()
-                        } else {
-                            prompt_password_confirm("Enter new password")?
-                        },
+                        // prioritises -g then --new-password then prompts
+                        genned_password.unwrap_or_else(|| {
+                            new_password_arg.clone().unwrap_or_else(|| {
+                                prompt_password_confirm(PASSWORD_INPUT_PROMPT)
+                                    .expect("Input error when prompted for password edit")
+                            })
+                        }),
                     );
-                } else {
-                    info!("Editing field name");
-                    let field_value = get_or_error(field, &account_map)?;
-                    account_map.insert(value.clone().unwrap(), field_value.clone());
-                    account_map.remove(field);
                 }
-            } else {
-                // also edits field name but no need for info! because user is prompted
-                let field_value = get_or_error(field, &account_map)?;
-                account_map.insert(user_input(PROPERTY_INPUT_PROMPT)?, field_value.clone());
-                account_map.remove(field);
+                Some(Some(_)) | None => {
+                    info!("Editing field name");
+                    // now that we know the field name has been targeted for editing
+                    // we can simply unwrap the arg itself to get a value or prompt
+                    // the user if -v was not passed at all
+                    let new_key = &unwrap_or_input(value_arg)?;
+                    if let Some(old_value) = account_map.remove(field) {
+                        if account_map.contains_key(new_key) {
+                            if confirm(CONFIRM_OVERWRITE_PROMPT, false, force_arg)? {
+                                account_map.insert(new_key.clone(), old_value);
+                            }
+                        } else {
+                            account_map.insert(new_key.clone(), old_value);
+                        }
+                    } else {
+                        return Err(anyhow!("{}{}", ARGUMENT_NOT_FOUND, FIELD));
+                    }
+                }
             }
+            // Reinsert the modified account_map
+            passwords.insert(account_key, account_map);
         } else {
             info!("Editing account name");
-            let new_account_name = unwrap_or_input(value_arg)?;
-            passwords.insert(new_account_name, account_map);
-            return Ok(());
+            let new_key = &unwrap_or_input(value_arg)?;
+            // we know at this point that the account exists
+            if passwords.contains_key(new_key) {
+                if confirm(CONFIRM_OVERWRITE_PROMPT, false, force_arg)? {
+                    passwords.insert(new_key.clone(), account_map);
+                }
+            } else {
+                passwords.insert(new_key.clone(), account_map);
+            }
         }
-
-        // Reinsert the modified account_map
-        passwords.insert(account_key, account_map);
     } else {
-        return Err(anyhow!("{}{}", ARGUMENT_NOT_FOUND, account));
+        return Err(anyhow!("{}{}", ARGUMENT_NOT_FOUND, ACCOUNT));
     }
 
     Ok(())
@@ -414,7 +430,7 @@ fn get_or_error(field: &str, map: &Account) -> Result<String> {
         .ok_or_else(|| anyhow!(ARGUMENT_NOT_FOUND))
 }
 
-/// unwraps a value from args or prompts user for input
+/// double unwraps the value argument or prompts user for input
 fn unwrap_or_input(value: &Option<Option<String>>) -> Result<String, dialoguer::Error> {
     if let Some(Some(v)) = value {
         Ok(v.clone())
