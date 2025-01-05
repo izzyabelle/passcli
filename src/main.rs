@@ -316,37 +316,46 @@ fn handle_edit(app: &mut App) -> Result<()> {
 fn handle_remove(app: &mut App) -> Result<()> {
     let (account, field, passwords) = (&app.args.account, &app.args.field, &mut app.passwords);
 
-    if account.is_none()
-        && confirm(
+    if account.is_none() {
+        if confirm(
             "No account specified, would you like to delete the entire database?",
             false,
-        )?
-        && confirm(
+        )? && confirm(
             "Are you sure you would like to delete all your passwords?",
             false,
-        )?
-    {
-        *passwords = HashMap::new();
+        )? {
+            *passwords = HashMap::new();
+        }
         return Ok(());
     }
-
     let account = account.as_ref().unwrap();
 
-    if let Some(account_map) = passwords.get_mut(account) {
-        if let Some(field) = field {
-            if account_map.contains_key(field)
-                && confirm(
-                    &format!("{} {} {}", CONFIRM_DELETION_PROMPT, FIELD, field),
-                    false,
-                )?
-            {
-                account_map.remove(field);
+    if let Some((account_key, mut account_map)) = passwords.remove_entry(account) {
+        match field {
+            Some(field) => {
+                if account_map.contains_key(field) {
+                    if confirm(
+                        &format!("{} {} {}", CONFIRM_DELETION_PROMPT, FIELD, field),
+                        false,
+                    )? {
+                        account_map.remove(field);
+                    }
+                } else {
+                    // Reinsert account before returning error
+                    passwords.insert(account_key, account_map);
+                    return Err(anyhow!("{} {}", ARGUMENT_NOT_FOUND, FIELD));
+                }
+                // Reinsert the modified account_map
+                passwords.insert(account_key, account_map);
             }
-        } else if confirm(
-            &format!("{} {} {}", CONFIRM_DELETION_PROMPT, ACCOUNT, account),
-            false,
-        )? {
-            account_map.remove(account);
+            None => {
+                if !confirm(
+                    &format!("{} {} {}", CONFIRM_DELETION_PROMPT, ACCOUNT, account),
+                    false,
+                )? {
+                    passwords.insert(account_key, account_map);
+                }
+            }
         }
     } else {
         return Err(anyhow!("{} {}", ARGUMENT_NOT_FOUND, ACCOUNT));
