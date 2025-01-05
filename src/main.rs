@@ -122,15 +122,28 @@ fn run() -> Result<i32> {
 }
 
 fn handle_cmd(app: &mut App) -> Result<()> {
-    match app.args.operation {
+    match &app.args.operation {
         Ops::Add => handle_add(app)?,
         Ops::Remove => handle_remove(app)?,
         Ops::Edit => handle_edit(app)?,
         Ops::Print => handle_print(app)?,
         Ops::Interactive => {}
     }
+    if let Ops::Interactive = &app.args.operation {
+    } else {
+        info!("Operation executed");
+    }
+
     Ok(())
 }
+
+const ARGUMENT_NOT_FOUND: &str = "Argument not found:";
+const PROPERTY_INPUT_PROMPT: &str = "Enter new property";
+const PASSWORD_INPUT_PROMPT: &str = "Enter new password";
+const CONFIRM_DELETION_PROMPT: &str = "Confirm deletion of the";
+const CONFIRM_OVERWRITE_PROMPT: &str = "Confirm overwrite";
+const ACCOUNT: &str = "account";
+const FIELD: &str = "field";
 
 /// Add or edit account fields, an empty account can also be added
 fn handle_add(app: &mut App) -> Result<()> {
@@ -147,7 +160,7 @@ fn handle_add(app: &mut App) -> Result<()> {
         &mut app.passwords,
     );
 
-    // early return if there is no account specified and allows reduced nesting
+    // refactor to allow entering account and password via prompting
     if account.is_none() {
         return Err(anyhow!("Insufficient arguments supplied"));
     }
@@ -168,10 +181,7 @@ fn handle_add(app: &mut App) -> Result<()> {
         match account_map.entry(field.clone()) {
             Entry::Occupied(mut entry) => {
                 // confirm edit if field is already extant
-                if confirm(
-                    "This field already has a value, would you like to change it?",
-                    false,
-                )? {
+                if confirm(CONFIRM_OVERWRITE_PROMPT, false)? {
                     entry.insert(unwrap_or_password(value)?);
                     info!("Field edited");
                 } else {
@@ -224,16 +234,12 @@ fn handle_print(app: &App) -> Result<()> {
             }
             Ok(())
         } else {
-            Err(anyhow!("Field doesn't exist"))
+            Err(anyhow!("{}{}", ARGUMENT_NOT_FOUND, field))
         }
     } else {
-        Err(anyhow!("Account doesn't exist"))
+        Err(anyhow!("{}{}", ARGUMENT_NOT_FOUND, account))
     }
 }
-
-const PROPERTY_MISSING_EDIT: &str = "No property to edit";
-const PROPERTY_INPUT_PROMPT: &str = "Enter new property";
-const PASSWORD_INPUT_PROMPT: &str = "Enter new password";
 
 /// Operation to edit properties, requires specific arguments
 fn handle_edit(app: &mut App) -> Result<()> {
@@ -248,7 +254,6 @@ fn handle_edit(app: &mut App) -> Result<()> {
 
     // edit master pass if no account arg passed
     if account.is_none() {
-        info!("Editing master password");
         if confirm("Confirm editing master password", false)? {
             *master_pass = unwrap_or_password(value)?;
         } else {
@@ -287,7 +292,6 @@ fn handle_edit(app: &mut App) -> Result<()> {
                     account_map.remove(field);
                 }
             } else {
-                info!("Editing field name");
                 let field_value = get_or_error(field, account_map)?;
                 account_map.insert(user_input(PROPERTY_INPUT_PROMPT)?, field_value.clone());
                 account_map.remove(field);
@@ -297,7 +301,7 @@ fn handle_edit(app: &mut App) -> Result<()> {
             account_edit = Some((unwrap_or_input(value)?, account_map.clone()))
         }
     } else {
-        return Err(anyhow!(PROPERTY_MISSING_EDIT));
+        return Err(anyhow!("{}{}", ARGUMENT_NOT_FOUND, account));
     }
 
     if let Some(new_account) = account_edit {
@@ -310,7 +314,45 @@ fn handle_edit(app: &mut App) -> Result<()> {
 }
 
 fn handle_remove(app: &mut App) -> Result<()> {
-    todo!()
+    let (account, field, passwords) = (&app.args.account, &app.args.field, &mut app.passwords);
+
+    if account.is_none()
+        && confirm(
+            "No account specified, would you like to delete the entire database?",
+            false,
+        )?
+        && confirm(
+            "Are you sure you would like to delete all your passwords?",
+            false,
+        )?
+    {
+        *passwords = HashMap::new();
+        return Ok(());
+    }
+
+    let account = account.as_ref().unwrap();
+
+    if let Some(account_map) = passwords.get_mut(account) {
+        if let Some(field) = field {
+            if account_map.contains_key(field)
+                && confirm(
+                    &format!("{} {} {}", CONFIRM_DELETION_PROMPT, FIELD, field),
+                    false,
+                )?
+            {
+                account_map.remove(field);
+            }
+        } else if confirm(
+            &format!("{} {} {}", CONFIRM_DELETION_PROMPT, ACCOUNT, account),
+            false,
+        )? {
+            account_map.remove(account);
+        }
+    } else {
+        return Err(anyhow!("{} {}", ARGUMENT_NOT_FOUND, ACCOUNT));
+    }
+
+    Ok(())
 }
 
 // convenience functions follow
@@ -319,7 +361,7 @@ fn get_or_error(field: &str, map: &Account) -> Result<String> {
     if let Some(value) = map.get(field) {
         Ok(value.clone())
     } else {
-        Err(anyhow!(PROPERTY_MISSING_EDIT))
+        Err(anyhow!(ARGUMENT_NOT_FOUND))
     }
 }
 
