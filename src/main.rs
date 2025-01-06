@@ -2,10 +2,10 @@
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use colored::*;
-use config::{Args, LocalConfig, Ops};
+use config::{Args, Ops, PassConfig};
 use crypt::{read_encrypted_file, write_encrypted_file};
 use dialoguer::{Confirm, Input, Password};
-use log::{debug, error, info, warn, LevelFilter};
+use log::{debug, error, info, LevelFilter};
 use rand::prelude::{thread_rng, Rng};
 use simplelog::{ColorChoice, CombinedLogger, Config, TermLogger, TerminalMode};
 use std::{
@@ -23,7 +23,7 @@ type Accounts = HashMap<String, Account>;
 #[derive(Debug)]
 struct App {
     args: Args,
-    config: LocalConfig,
+    config: PassConfig,
     master_pass: String,
     passwords: Accounts,
     interactive: bool,
@@ -31,40 +31,31 @@ struct App {
 
 impl App {
     /// Initializes the application by parsing arguments and the config
-    /// file if present, configuring them and handling the password file.
+    /// file if present, then handling the password file.
     fn new() -> Result<Self> {
         let args = Args::parse();
-        let config = LocalConfig::new()?;
+        let config = PassConfig::new()?;
 
         let path = args.path.as_ref().unwrap_or(&config.default_path);
 
         if path.exists() {
             debug!("File found at target path");
-            for attempt in 0..3 {
-                let prompt = if attempt == 0 {
-                    String::from("Enter master password")
-                } else {
-                    format!("Attempt {}/3", attempt + 1)
-                };
-
-                let master_pass = prompt_password("Enter master pass")?;
-                if let Ok(passwords) = read_encrypted_file(&master_pass, path) {
-                    debug!("File read successfully");
-                    return Ok(Self {
-                        args,
-                        config,
-                        master_pass,
-                        passwords,
-                        interactive: false,
-                    });
-                } else {
-                    warn!("Incorrect password\n");
-                }
+            let master_pass = unwrap_or_input_password(&args.pass)?;
+            if let Ok(passwords) = read_encrypted_file(&master_pass, path) {
+                debug!("File read successfully");
+                Ok(Self {
+                    args,
+                    config,
+                    master_pass,
+                    passwords,
+                    interactive: false,
+                })
+            } else {
+                Err(anyhow!("Incorrect password\n"))
             }
-            Err(anyhow!("Password attempts exceeded"))
         } else {
             info!("File not found, new file will be created");
-            let master_pass = prompt_password_confirm("Create master password")?;
+            let master_pass = prompt_password("Create master password", true)?;
             Ok(Self {
                 args,
                 config,
@@ -98,7 +89,7 @@ fn run() -> Result<i32> {
 
     match app.args.operation {
         Some(Ops::Interactive) => {
-            info!("Interactive mode initialised");
+            info!("Interactive mode initialised (q or quit to exit)");
             app.interactive = true;
             loop {
                 let cmd = user_input("cmd")?;
@@ -112,16 +103,24 @@ fn run() -> Result<i32> {
                 if let Err(e) = handle_cmd(&mut app) {
                     error!("{}", e);
                 }
+
+                // write file after every command in case of incorrect arg parsing
+                if let Some(Ops::Print) | None = app.args.operation {
+                } else {
+                    write_encrypted_file(&app)?;
+                }
+            }
+            Ok(0)
+        }
+        _ => {
+            handle_cmd(&mut app)?;
+            if let Some(Ops::Print) | None = app.args.operation {
+                Ok(0)
+            } else {
+                write_encrypted_file(&app)
             }
         }
-        _ => handle_cmd(&mut app)?,
     }
-
-    if let Some(Ops::Print) | None = app.args.operation {
-    } else {
-        write_encrypted_file(&app)?;
-    }
-    Ok(0)
 }
 
 fn handle_cmd(app: &mut App) -> Result<()> {
@@ -137,7 +136,8 @@ fn handle_cmd(app: &mut App) -> Result<()> {
 
 const ARGUMENT_NOT_FOUND: &str = "Argument not found: ";
 const PROPERTY_INPUT_PROMPT: &str = "Enter new property";
-const PASSWORD_INPUT_PROMPT: &str = "Enter new password";
+const NEW_PASSWORD_INPUT_PROMPT: &str = "Enter new password";
+const MASTER_PASSWORD_INPUT_PROMPT: &str = "Enter master password";
 const CONFIRM_DELETION_PROMPT: &str = "Confirm deletion of the ";
 const CONFIRM_OVERWRITE_PROMPT: &str = "Confirm overwrite";
 const ACCOUNT: &str = "account ";
@@ -185,21 +185,21 @@ fn handle_add(app: &mut App) -> Result<()> {
             Entry::Occupied(mut entry) => {
                 // confirm edit if field is already extant
                 if confirm(CONFIRM_OVERWRITE_PROMPT, false, force_arg)? {
-                    entry.insert(unwrap_or_password(value)?);
+                    entry.insert(unwrap_or_new_password(value)?);
                     info!("Field edited");
                 } else {
                     info!("Nothing was changed");
                 }
             }
             Entry::Vacant(entry) => {
-                entry.insert(unwrap_or_password(value)?);
+                entry.insert(unwrap_or_new_password(value)?);
                 info!("Field created");
             }
         }
     } else {
         passwords.insert(
             account.clone(),
-            HashMap::from([(field_arg.clone(), unwrap_or_password(value)?)]),
+            HashMap::from([(field_arg.clone(), unwrap_or_new_password(value)?)]),
         );
         info!("Account and field created");
     }
@@ -278,7 +278,7 @@ fn handle_edit(app: &mut App) -> Result<()> {
     // Edit master pass if no account arg passed
     if account_arg.is_none() {
         if confirm("Confirm editing master password", false, force_arg)? {
-            *master_pass = unwrap_or_password(value_arg)?;
+            *master_pass = unwrap_or_new_password(value_arg)?;
         }
         return Ok(());
     }
@@ -305,13 +305,13 @@ fn handle_edit(app: &mut App) -> Result<()> {
                 info!("Editing password");
                 let prev_password = get_or_error(field, &account_map)?;
                 if !*hide {
-                    println!("Current password is {}", prev_password);
+                    println!("Previous password is {}", prev_password);
                 }
                 // get value for new password, prioritising -g
                 let new_password = if let Some(v) = genned_password {
                     v
                 } else {
-                    unwrap_or_password(new_password_arg)?
+                    unwrap_or_new_password(new_password_arg)?
                 };
                 account_map.insert(field.clone(), new_password);
             } else {
@@ -429,11 +429,20 @@ fn unwrap_or_input(value: &Option<Option<String>>) -> Result<String, dialoguer::
 }
 
 /// unwraps a value from args or prompts user for password with confirmation
-fn unwrap_or_password(value: &Option<Option<String>>) -> Result<String> {
+fn unwrap_or_new_password(value: &Option<Option<String>>) -> Result<String, dialoguer::Error> {
     if let Some(Some(v)) = value {
         Ok(v.clone())
     } else {
-        prompt_password_confirm(PASSWORD_INPUT_PROMPT)
+        prompt_password(NEW_PASSWORD_INPUT_PROMPT, true)
+    }
+}
+
+/// unwraps a value from args or prompts user for password with confirmation
+fn unwrap_or_input_password(value: &Option<Option<String>>) -> Result<String, dialoguer::Error> {
+    if let Some(Some(v)) = value {
+        Ok(v.clone())
+    } else {
+        prompt_password(MASTER_PASSWORD_INPUT_PROMPT, false)
     }
 }
 
@@ -468,17 +477,15 @@ fn confirm(prompt: &str, default: bool, force: &bool) -> Result<bool, dialoguer:
 }
 
 /// shortened dialoguer password prompt
-fn prompt_password(prompt: &str) -> Result<String, dialoguer::Error> {
-    Password::new().with_prompt(prompt).interact()
-}
-
-/// prompts for password twice and only returns Ok if they match
-fn prompt_password_confirm(prompt: &str) -> Result<String> {
-    let new_pass = prompt_password(prompt)?;
-    if prompt_password("Confirm password")? == new_pass {
-        Ok(new_pass)
+fn prompt_password(prompt: &str, confirm: bool) -> Result<String, dialoguer::Error> {
+    if confirm {
+        Password::new()
+            .with_prompt(prompt)
+            .report(false)
+            .with_confirmation("Confirm password", "Mismatched password")
+            .interact()
     } else {
-        Err(anyhow!("Mismatched password"))
+        Password::new().with_prompt(prompt).report(false).interact()
     }
 }
 

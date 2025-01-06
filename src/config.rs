@@ -55,7 +55,7 @@ pub struct Args {
     #[arg(long)]
     pub path: Option<PathBuf>,
     #[arg(long)]
-    pub pass: Option<String>,
+    pub pass: Option<Option<String>>,
     #[arg(short, long)]
     pub all_fields: bool,
     #[arg(short, long)]
@@ -65,7 +65,7 @@ pub struct Args {
 }
 
 #[derive(SmartDefault, Debug, Deserialize)]
-pub struct LocalConfig {
+pub struct PassConfig {
     #[default(PathBuf::from("test/passwords"))]
     pub default_path: PathBuf,
     #[default(16)]
@@ -76,7 +76,7 @@ pub struct LocalConfig {
     pub default_field: String,
 }
 
-impl LocalConfig {
+impl PassConfig {
     pub fn new() -> Result<Self> {
         if let Some(path) = dirs::config_dir() {
             let path = path.join("passgen\\passgen.toml");

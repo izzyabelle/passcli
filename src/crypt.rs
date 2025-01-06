@@ -12,7 +12,7 @@ const KEY_SIZE: u32 = 32;
 const SALT_SIZE: usize = 16;
 const KDF_ITERATIONS: u32 = 3;
 
-pub fn write_encrypted_file(app: &App) -> Result<()> {
+pub fn write_encrypted_file(app: &App) -> Result<i32> {
     // generate salt and derive key
     let password = kdf::Password::from_slice(app.master_pass.as_bytes())?;
     let salt = kdf::Salt::generate(SALT_SIZE)?;
@@ -29,7 +29,7 @@ pub fn write_encrypted_file(app: &App) -> Result<()> {
 
     let mut file = File::create(app.args.path.as_ref().unwrap_or(&app.config.default_path))?;
     file.write_all(encoded_data.as_bytes())?;
-    Ok(())
+    Ok(0)
 }
 
 pub fn read_encrypted_file(password: &String, path: &PathBuf) -> Result<Accounts> {
@@ -53,7 +53,7 @@ pub fn read_encrypted_file(password: &String, path: &PathBuf) -> Result<Accounts
 mod crypto_tests {
     use std::collections::HashMap;
 
-    use crate::config::{Args, LocalConfig};
+    use crate::config::{Args, PassConfig};
 
     use super::*;
 
@@ -61,7 +61,7 @@ mod crypto_tests {
     fn test_io() {
         let mut app = App {
             args: Args::default(),
-            config: LocalConfig::new().unwrap(),
+            config: PassConfig::new().unwrap(),
             master_pass: String::from("crypto test password"),
             passwords: HashMap::from([
                 (
