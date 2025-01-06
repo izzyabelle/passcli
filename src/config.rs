@@ -61,7 +61,7 @@ pub struct Args {
     #[arg(short, long)]
     pub force: bool,
     #[arg(long)]
-    pub new_password: Option<String>,
+    pub new_password: Option<Option<String>>,
 }
 
 #[derive(SmartDefault, Debug, Deserialize)]

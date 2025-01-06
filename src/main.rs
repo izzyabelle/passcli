@@ -296,48 +296,37 @@ fn handle_edit(app: &mut App) -> Result<()> {
     });
 
     // If user specifies only an account or field, that will be edited
-    // They can pass -v with a value to edit the value without prompting
-    // In order to edit a password they have to specify the account and field and an empty -v
-    // They will then be prompted to enter a new password which will be confirmed
-    // If they wish to edit the password without prompting they need to follow the prev
-    // steps but also pass either a --new-password or -g
+    // They can pass -v with a value to edit those values without prompting
+    // In order to edit a password they have to specify the account and field with
+    // -g or --new-password. An empty --new-password will reult in a prompt
     if let Some((account_key, mut account_map)) = passwords.remove_entry(account) {
         if let Some(field) = field_arg {
-            match value_arg {
-                Some(None) => {
-                    info!("Editing password");
-                    let prev_password = get_or_error(field, &account_map)?;
-                    if !*hide {
-                        println!("Current password is {}", prev_password);
-                    }
-                    account_map.insert(
-                        field.clone(),
-                        // prioritises -g then --new-password then prompts
-                        genned_password.unwrap_or_else(|| {
-                            new_password_arg.clone().unwrap_or_else(|| {
-                                prompt_password_confirm(PASSWORD_INPUT_PROMPT)
-                                    .expect("Input error when prompted for password edit")
-                            })
-                        }),
-                    );
+            if let (Some(_), _) | (_, Some(_)) = (new_password_arg, gen_arg) {
+                info!("Editing password");
+                let prev_password = get_or_error(field, &account_map)?;
+                if !*hide {
+                    println!("Current password is {}", prev_password);
                 }
-                Some(Some(_)) | None => {
-                    info!("Editing field name");
-                    // now that we know the field name has been targeted for editing
-                    // we can simply unwrap the arg itself to get a value or prompt
-                    // the user if -v was not passed at all
+                // get value for new password, prioritising -g
+                let new_password = if let Some(v) = genned_password {
+                    v
+                } else {
+                    unwrap_or_password(new_password_arg)?
+                };
+                account_map.insert(field.clone(), new_password);
+            } else {
+                info!("Editing field name");
+                if let Some(old_value) = account_map.remove(field) {
                     let new_key = &unwrap_or_input(value_arg)?;
-                    if let Some(old_value) = account_map.remove(field) {
-                        if account_map.contains_key(new_key) {
-                            if confirm(CONFIRM_OVERWRITE_PROMPT, false, force_arg)? {
-                                account_map.insert(new_key.clone(), old_value);
-                            }
-                        } else {
+                    if account_map.contains_key(new_key) {
+                        if confirm(CONFIRM_OVERWRITE_PROMPT, false, force_arg)? {
                             account_map.insert(new_key.clone(), old_value);
                         }
                     } else {
-                        return Err(anyhow!("{}{}", ARGUMENT_NOT_FOUND, FIELD));
+                        account_map.insert(new_key.clone(), old_value);
                     }
+                } else {
+                    return Err(anyhow!("{}{}", ARGUMENT_NOT_FOUND, FIELD));
                 }
             }
             // Reinsert the modified account_map
@@ -430,7 +419,7 @@ fn get_or_error(field: &str, map: &Account) -> Result<String> {
         .ok_or_else(|| anyhow!(ARGUMENT_NOT_FOUND))
 }
 
-/// double unwraps the value argument or prompts user for input
+/// double unwraps the value or new_password argument or prompts user for input
 fn unwrap_or_input(value: &Option<Option<String>>) -> Result<String, dialoguer::Error> {
     if let Some(Some(v)) = value {
         Ok(v.clone())
