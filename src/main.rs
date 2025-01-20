@@ -10,7 +10,9 @@ use rand::prelude::{thread_rng, Rng};
 use simplelog::{ColorChoice, CombinedLogger, Config, TermLogger, TerminalMode};
 use std::{
     collections::{hash_map::Entry, HashMap},
+    fs,
     iter::repeat_with,
+    path::PathBuf,
     process::exit,
 };
 
@@ -24,28 +26,53 @@ type Accounts = HashMap<String, Account>;
 struct App {
     args: Args,
     config: PassConfig,
+    path: PathBuf,
     master_pass: String,
     passwords: Accounts,
     interactive: bool,
 }
 
 impl App {
-    /// Initializes the application by parsing arguments and the config
-    /// file if present, then handling the password file.
+    /// Initializes the application by parsing arguments and the config file
+    /// if present, then handling the password file. Also initialises logger
     fn new() -> Result<Self> {
         let args = Args::parse();
         let config = PassConfig::new()?;
 
-        let path = args.path.as_ref().unwrap_or(&config.default_path);
+        CombinedLogger::init(vec![TermLogger::new(
+            if args.quiet {
+                LevelFilter::Off
+            } else {
+                LevelFilter::from(config.log_level)
+            },
+            Config::default(),
+            TerminalMode::Mixed,
+            ColorChoice::Auto,
+        )])
+        .unwrap();
+
+        let path = if let Some(p) = args.path.as_ref() {
+            p.clone()
+        } else if let Some(p) = config.default_path.as_ref() {
+            p.clone()
+        } else if let Some(p) = dirs::data_dir() {
+            p.join("passcli/passwd")
+        } else {
+            return Err(anyhow!(
+                "No target path specified and no data directory found"
+            ));
+        };
 
         if path.exists() {
             debug!("File found at target path");
             let master_pass = unwrap_or_input_password(&args.pass)?;
-            if let Ok(passwords) = read_encrypted_file(&master_pass, path) {
+            if let Ok(passwords) = read_encrypted_file(&master_pass, &path, &config.kdf_iterations)
+            {
                 debug!("File read successfully");
                 Ok(Self {
                     args,
                     config,
+                    path,
                     master_pass,
                     passwords,
                     interactive: false,
@@ -55,10 +82,14 @@ impl App {
             }
         } else {
             info!("File not found, new file will be created");
-            let master_pass = prompt_password("Create master password", true)?;
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let master_pass = prompt_password("Create master password", true, &false)?;
             Ok(Self {
                 args,
                 config,
+                path,
                 master_pass,
                 passwords: HashMap::new(),
                 interactive: false,
@@ -68,17 +99,10 @@ impl App {
 }
 
 fn main() {
-    CombinedLogger::init(vec![TermLogger::new(
-        LevelFilter::Info,
-        Config::default(),
-        TerminalMode::Mixed,
-        ColorChoice::Auto,
-    )])
-    .unwrap();
     match run() {
         Ok(ret) => exit(ret),
         Err(err) => {
-            error!("Exiting with error:\n{}", err);
+            eprintln!("Exiting with error:\n{}", err);
             exit(1);
         }
     }
@@ -104,7 +128,7 @@ fn run() -> Result<i32> {
                     error!("{}", e);
                 }
 
-                // write file after every command in case of incorrect arg parsing
+                // write file after every command in case of arg parsing error
                 if let Some(Ops::Print) | None = app.args.operation {
                 } else {
                     write_encrypted_file(&app)?;
@@ -173,7 +197,6 @@ fn handle_add(app: &mut App) -> Result<()> {
         &Some(Some(gen_passwd(
             &gen.unwrap_or(app.config.default_gen),
             disallow,
-            interactive,
             hide,
         )))
     } else {
@@ -185,21 +208,21 @@ fn handle_add(app: &mut App) -> Result<()> {
             Entry::Occupied(mut entry) => {
                 // confirm edit if field is already extant
                 if confirm(CONFIRM_OVERWRITE_PROMPT, false, force_arg)? {
-                    entry.insert(unwrap_or_new_password(value)?);
+                    entry.insert(unwrap_or_new_password(value, force_arg)?);
                     info!("Field edited");
                 } else {
                     info!("Nothing was changed");
                 }
             }
             Entry::Vacant(entry) => {
-                entry.insert(unwrap_or_new_password(value)?);
+                entry.insert(unwrap_or_new_password(value, force_arg)?);
                 info!("Field created");
             }
         }
     } else {
         passwords.insert(
             account.clone(),
-            HashMap::from([(field_arg.clone(), unwrap_or_new_password(value)?)]),
+            HashMap::from([(field_arg.clone(), unwrap_or_new_password(value, force_arg)?)]),
         );
         info!("Account and field created");
     }
@@ -278,7 +301,7 @@ fn handle_edit(app: &mut App) -> Result<()> {
     // Edit master pass if no account arg passed
     if account_arg.is_none() {
         if confirm("Confirm editing master password", false, force_arg)? {
-            *master_pass = unwrap_or_new_password(value_arg)?;
+            *master_pass = unwrap_or_new_password(value_arg, force_arg)?;
         }
         return Ok(());
     }
@@ -290,7 +313,6 @@ fn handle_edit(app: &mut App) -> Result<()> {
         gen_passwd(
             &gen_arg_value.unwrap_or(app.config.default_gen),
             disallow,
-            interactive,
             hide,
         )
     });
@@ -311,7 +333,7 @@ fn handle_edit(app: &mut App) -> Result<()> {
                 let new_password = if let Some(v) = genned_password {
                     v
                 } else {
-                    unwrap_or_new_password(new_password_arg)?
+                    unwrap_or_new_password(new_password_arg, force_arg)?
                 };
                 account_map.insert(field.clone(), new_password);
             } else {
@@ -429,11 +451,14 @@ fn unwrap_or_input(value: &Option<Option<String>>) -> Result<String, dialoguer::
 }
 
 /// unwraps a value from args or prompts user for password with confirmation
-fn unwrap_or_new_password(value: &Option<Option<String>>) -> Result<String, dialoguer::Error> {
+fn unwrap_or_new_password(
+    value: &Option<Option<String>>,
+    force: &bool,
+) -> Result<String, dialoguer::Error> {
     if let Some(Some(v)) = value {
         Ok(v.clone())
     } else {
-        prompt_password(NEW_PASSWORD_INPUT_PROMPT, true)
+        prompt_password(NEW_PASSWORD_INPUT_PROMPT, true, force)
     }
 }
 
@@ -442,7 +467,7 @@ fn unwrap_or_input_password(value: &Option<Option<String>>) -> Result<String, di
     if let Some(Some(v)) = value {
         Ok(v.clone())
     } else {
-        prompt_password(MASTER_PASSWORD_INPUT_PROMPT, false)
+        prompt_password(MASTER_PASSWORD_INPUT_PROMPT, false, &false)
     }
 }
 
@@ -477,8 +502,8 @@ fn confirm(prompt: &str, default: bool, force: &bool) -> Result<bool, dialoguer:
 }
 
 /// shortened dialoguer password prompt
-fn prompt_password(prompt: &str, confirm: bool) -> Result<String, dialoguer::Error> {
-    if confirm {
+fn prompt_password(prompt: &str, confirm: bool, force: &bool) -> Result<String, dialoguer::Error> {
+    if confirm && !*force {
         Password::new()
             .with_prompt(prompt)
             .report(false)
@@ -491,18 +516,32 @@ fn prompt_password(prompt: &str, confirm: bool) -> Result<String, dialoguer::Err
 
 /// generates a password with ascii values between 33-126
 /// barring any characters that are disallowed
-fn gen_passwd(len: &usize, disallow: &str, interactive: &bool, hide: &bool) -> String {
+fn gen_passwd(len: &usize, disallow: &str, hide: &bool) -> String {
     let mut rng = thread_rng();
-    let allowed_chars: Vec<u8> = (33..=126)
-        .filter(|&c| !disallow.contains(c as char))
+
+    let disallow: Vec<u8> = disallow
+        .split(",,")
+        .flat_map(|s| match s {
+            "symbol" => (33..=47)
+                .chain(58..=64)
+                .chain(91..=96)
+                .chain(123..=126)
+                .collect::<Vec<u8>>(),
+            "digit" => (48..=57).collect(),
+            "uppercase" => (65..=90).collect(),
+            "lowercase" => (97..=122).collect(),
+            _ => s.as_bytes().to_vec(),
+        })
         .collect();
+
+    let allowed_chars: Vec<u8> = (33..=126).filter(|&c| !disallow.contains(&c)).collect();
 
     let password: String = repeat_with(|| allowed_chars[rng.gen_range(0..allowed_chars.len())])
         .take(*len)
         .map(|c| c as char)
         .collect();
 
-    if !*interactive && !*hide {
+    if !*hide {
         println!("{}", password);
     }
 

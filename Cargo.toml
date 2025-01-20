@@ -8,7 +8,7 @@ anyhow = "1.0.87"
 base64 = "0.22.1"
 clap = { version = "4.5.17", features = ["derive"] }
 colored = "2.2.0"
-dialoguer = "0.11.0"
+dialoguer = { version = "0.11.0", features = [] }
 dirs = "5.0.1"
 log = "0.4.22"
 orion = { version = "0.17.7", features = ["serde"] }

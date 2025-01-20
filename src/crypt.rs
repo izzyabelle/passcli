@@ -10,13 +10,18 @@ use crate::{Accounts, App};
 
 const KEY_SIZE: u32 = 32;
 const SALT_SIZE: usize = 16;
-const KDF_ITERATIONS: u32 = 3;
 
 pub fn write_encrypted_file(app: &App) -> Result<i32> {
     // generate salt and derive key
     let password = kdf::Password::from_slice(app.master_pass.as_bytes())?;
     let salt = kdf::Salt::generate(SALT_SIZE)?;
-    let key = kdf::derive_key(&password, &salt, KDF_ITERATIONS, 1 << 16, KEY_SIZE)?;
+    let key = kdf::derive_key(
+        &password,
+        &salt,
+        app.config.kdf_iterations,
+        1 << 16,
+        KEY_SIZE,
+    )?;
 
     // encrypt passwords
     let passwords = serde_json::to_vec(&app.passwords)?;
@@ -27,12 +32,16 @@ pub fn write_encrypted_file(app: &App) -> Result<i32> {
 
     let encoded_data = general_purpose::STANDARD.encode(&tuple_data);
 
-    let mut file = File::create(app.args.path.as_ref().unwrap_or(&app.config.default_path))?;
+    let mut file = File::create(app.path.clone())?;
     file.write_all(encoded_data.as_bytes())?;
     Ok(0)
 }
 
-pub fn read_encrypted_file(password: &String, path: &PathBuf) -> Result<Accounts> {
+pub fn read_encrypted_file(
+    password: &String,
+    path: &PathBuf,
+    kdf_iterations: &u32,
+) -> Result<Accounts> {
     // read raw file
     let mut file_data = Vec::new();
     File::open(path)?.read_to_end(&mut file_data)?;
@@ -42,7 +51,7 @@ pub fn read_encrypted_file(password: &String, path: &PathBuf) -> Result<Accounts
     // derive key from password and salt
     let salt = kdf::Salt::from_slice(&salt)?;
     let password = kdf::Password::from_slice(password.as_bytes())?;
-    let key = kdf::derive_key(&password, &salt, KDF_ITERATIONS, 1 << 16, KEY_SIZE)?;
+    let key = kdf::derive_key(&password, &salt, *kdf_iterations, 1 << 16, KEY_SIZE)?;
 
     // decrypt and deserialize passwords
     let plaintext = aead::open(&key, &passwords)?;
@@ -62,6 +71,7 @@ mod crypto_tests {
         let mut app = App {
             args: Args::default(),
             config: PassConfig::new().unwrap(),
+            path: PathBuf::from("test/passwds"),
             master_pass: String::from("crypto test password"),
             passwords: HashMap::from([
                 (
@@ -86,7 +96,7 @@ mod crypto_tests {
 
         write_encrypted_file(&app).unwrap();
         let decrypted_passwords =
-            read_encrypted_file(&app.master_pass, &app.args.path.unwrap()).unwrap();
+            read_encrypted_file(&app.master_pass, &app.args.path.unwrap(), &3).unwrap();
 
         assert_eq!(app.passwords, decrypted_passwords);
     }
