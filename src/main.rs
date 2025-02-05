@@ -63,9 +63,16 @@ impl App {
             ));
         };
 
+        let master_pass = if let Some(p) = args.pass.as_ref() {
+            p.clone()
+        } else if let Some(p) = config.default_pass.as_ref() {
+            p.clone()
+        } else {
+            prompt_password(MASTER_PASSWORD_INPUT_PROMPT, false, &args.force)?
+        };
+
         if path.exists() {
             debug!("File found at target path");
-            let master_pass = unwrap_or_input_password(&args.pass)?;
             if let Ok(passwords) = read_encrypted_file(&master_pass, &path, &config.kdf_iterations)
             {
                 debug!("File read successfully");
@@ -459,15 +466,6 @@ fn unwrap_or_new_password(
         Ok(v.clone())
     } else {
         prompt_password(NEW_PASSWORD_INPUT_PROMPT, true, force)
-    }
-}
-
-/// unwraps a value from args or prompts user for password with confirmation
-fn unwrap_or_input_password(value: &Option<Option<String>>) -> Result<String, dialoguer::Error> {
-    if let Some(Some(v)) = value {
-        Ok(v.clone())
-    } else {
-        prompt_password(MASTER_PASSWORD_INPUT_PROMPT, false, &false)
     }
 }
 

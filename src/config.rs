@@ -61,7 +61,7 @@ pub struct Args {
     #[arg(long)]
     pub path: Option<PathBuf>,
     #[arg(long)]
-    pub pass: Option<Option<String>>,
+    pub pass: Option<String>,
     #[arg(short, long)]
     pub all_fields: bool,
     #[arg(short, long)]
@@ -96,6 +96,8 @@ impl From<LevelFilterConf> for LevelFilter {
 #[derive(SmartDefault, Debug, Deserialize, Serialize)]
 pub struct PassConfig {
     #[default(None)]
+    pub default_pass: Option<String>,
+    #[default(None)]
     pub default_path: Option<PathBuf>,
     #[default(16)]
     pub default_gen: usize,
@@ -127,7 +129,7 @@ impl PassConfig {
                     fs::create_dir_all(parent)?;
                 }
                 let mut file = File::create(path)?;
-                file.write_all(&file_contents.as_bytes())?;
+                file.write_all(file_contents.as_bytes())?;
                 Ok(config)
             }
         } else {
