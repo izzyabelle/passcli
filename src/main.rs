@@ -109,7 +109,7 @@ fn main() {
     match run() {
         Ok(ret) => exit(ret),
         Err(err) => {
-            eprintln!("Exiting with error:\n{}", err);
+            eprintln!("Exiting with error:\n    {}", err);
             exit(1);
         }
     }
