@@ -1,9 +1,6 @@
-#![allow(unused_variables)]
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use colored::*;
-use config::{Args, Ops, PassConfig};
-use crypt::{read_encrypted_file, write_encrypted_file};
 use dialoguer::{Confirm, Input, Password};
 use log::{debug, error, info, LevelFilter};
 use rand::prelude::{thread_rng, Rng};
@@ -16,6 +13,9 @@ use std::{
     process::exit,
 };
 
+use config::{Args, Ops, PassConfig};
+use crypt::{read_encrypted_file, write_encrypted_file};
+
 mod config;
 mod crypt;
 
@@ -25,7 +25,7 @@ type Accounts = HashMap<String, Account>;
 #[derive(Debug)]
 struct App {
     args: Args,
-    config: PassConfig,
+    conf: PassConfig,
     path: PathBuf,
     master_pass: String,
     passwords: Accounts,
@@ -48,8 +48,7 @@ impl App {
             Config::default(),
             TerminalMode::Mixed,
             ColorChoice::Auto,
-        )])
-        .unwrap();
+        )])?;
 
         let path = if let Some(p) = args.path.as_ref() {
             p.clone()
@@ -78,7 +77,7 @@ impl App {
                 debug!("File read successfully");
                 Ok(Self {
                     args,
-                    config,
+                    conf: config,
                     path,
                     master_pass,
                     passwords,
@@ -95,7 +94,7 @@ impl App {
             let master_pass = prompt_password("Create master password", true, &false)?;
             Ok(Self {
                 args,
-                config,
+                conf: config,
                 path,
                 master_pass,
                 passwords: HashMap::new(),
@@ -177,18 +176,17 @@ const FIELD: &str = "field ";
 /// Add or edit account fields, an empty account can also be added
 fn handle_add(app: &mut App) -> Result<()> {
     // create references for relevant fields
-    let (account_arg, field_arg, gen_arg, force_arg, hide, interactive, disallow, passwords) = (
+    let (account_arg, field_arg, gen_arg, force_arg, hide, disallow, passwords) = (
         &app.args.account,
-        app.args.field.as_ref().unwrap_or(&app.config.default_field),
+        app.args.field.as_ref().unwrap_or(&app.conf.default_field),
         // left as arg ref to check if it was passed
         &app.args.gen,
         &app.args.force,
         &app.args.hide,
-        &app.interactive,
         app.args
             .disallow
             .as_ref()
-            .unwrap_or(&app.config.default_disallow),
+            .unwrap_or(&app.conf.default_disallow),
         &mut app.passwords,
     );
 
@@ -202,7 +200,7 @@ fn handle_add(app: &mut App) -> Result<()> {
     let value = if let Some(gen) = gen_arg {
         debug!("Password generated");
         &Some(Some(gen_passwd(
-            &gen.unwrap_or(app.config.default_gen),
+            &gen.unwrap_or(app.conf.default_gen),
             disallow,
             hide,
         )))
@@ -240,7 +238,7 @@ fn handle_add(app: &mut App) -> Result<()> {
 fn handle_print(app: &App) -> Result<()> {
     let (account, field, hide, passwords, all) = (
         &app.args.account,
-        app.args.field.as_ref().unwrap_or(&app.config.default_field),
+        app.args.field.as_ref().unwrap_or(&app.conf.default_field),
         &app.args.hide,
         &app.passwords,
         &app.args.all_fields,
@@ -284,7 +282,6 @@ fn handle_edit(app: &mut App) -> Result<()> {
         force_arg,
         new_password_arg,
         gen_arg,
-        interactive,
         disallow,
         passwords,
         master_pass,
@@ -296,11 +293,10 @@ fn handle_edit(app: &mut App) -> Result<()> {
         &app.args.force,
         &app.args.new_password,
         &app.args.gen,
-        &app.interactive,
         app.args
             .disallow
             .as_ref()
-            .unwrap_or(&app.config.default_disallow),
+            .unwrap_or(&app.conf.default_disallow),
         &mut app.passwords,
         &mut app.master_pass,
     );
@@ -318,7 +314,7 @@ fn handle_edit(app: &mut App) -> Result<()> {
     // prepare genned password to simplify nested code
     let genned_password = gen_arg.map(|gen_arg_value| {
         gen_passwd(
-            &gen_arg_value.unwrap_or(app.config.default_gen),
+            &gen_arg_value.unwrap_or(app.conf.default_gen),
             disallow,
             hide,
         )

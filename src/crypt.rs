@@ -15,13 +15,7 @@ pub fn write_encrypted_file(app: &App) -> Result<i32> {
     // generate salt and derive key
     let password = kdf::Password::from_slice(app.master_pass.as_bytes())?;
     let salt = kdf::Salt::generate(SALT_SIZE)?;
-    let key = kdf::derive_key(
-        &password,
-        &salt,
-        app.config.kdf_iterations,
-        1 << 16,
-        KEY_SIZE,
-    )?;
+    let key = kdf::derive_key(&password, &salt, app.conf.kdf_iterations, 1 << 16, KEY_SIZE)?;
 
     // encrypt passwords
     let passwords = serde_json::to_vec(&app.passwords)?;
@@ -70,7 +64,7 @@ mod crypto_tests {
     fn test_io() {
         let mut app = App {
             args: Args::default(),
-            config: PassConfig::new().unwrap(),
+            conf: PassConfig::new().unwrap(),
             path: PathBuf::from("test/passwds"),
             master_pass: String::from("crypto test password"),
             passwords: HashMap::from([
