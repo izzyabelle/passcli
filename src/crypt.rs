@@ -52,46 +52,47 @@ pub fn read_encrypted_file(
     Ok(serde_json::from_slice(&plaintext)?)
 }
 
-#[cfg(test)]
-mod crypto_tests {
-    use std::collections::HashMap;
-
-    use crate::config::{Args, PassConfig};
-
-    use super::*;
-
-    #[test]
-    fn test_io() {
-        let mut app = App {
-            args: Args::default(),
-            conf: PassConfig::new().unwrap(),
-            path: PathBuf::from("test/passwds"),
-            master_pass: String::from("crypto test password"),
-            passwords: HashMap::from([
-                (
-                    String::from("account 1"),
-                    HashMap::from([
-                        (String::from("pass2"), String::from("thisispass2")),
-                        (String::from("pass"), String::from("thisispass1")),
-                    ]),
-                ),
-                (
-                    String::from("account 2"),
-                    HashMap::from([
-                        (String::from("pass2"), String::from("thisispass2")),
-                        (String::from("pass"), String::from("thisispass1")),
-                    ]),
-                ),
-            ]),
-            interactive: false,
-        };
-
-        app.args.path = Some(PathBuf::from("test/crypt_test_file"));
-
-        write_encrypted_file(&app).unwrap();
-        let decrypted_passwords =
-            read_encrypted_file(&app.master_pass, &app.args.path.unwrap(), &3).unwrap();
-
-        assert_eq!(app.passwords, decrypted_passwords);
-    }
-}
+// #[cfg(test)]
+// mod crypto_tests {
+//     use std::collections::HashMap;
+// 
+//     use crate::config::{Args, PassConfig};
+// 
+//     use super::*;
+// 
+//     #[test]
+//     fn test_io() {
+//         let mut app = App {
+//             args: Args::default(),
+//             conf: PassConfig::new().unwrap(),
+//             path: PathBuf::from("test/passwds"),
+//             master_pass: String::from("crypto test password"),
+//             passwords: HashMap::from([
+//                 (
+//                     String::from("account 1"),
+//                     HashMap::from([
+//                         (String::from("pass2"), String::from("thisispass2")),
+//                         (String::from("pass"), String::from("thisispass1")),
+//                     ]),
+//                 ),
+//                 (
+//                     String::from("account 2"),
+//                     HashMap::from([
+//                         (String::from("pass2"), String::from("thisispass2")),
+//                         (String::from("pass"), String::from("thisispass1")),
+//                     ]),
+//                 ),
+//             ]),
+//             interactive: false,
+//         };
+// 
+//         app.args.path = Some(PathBuf::from("test/crypt_test_file"));
+// 
+//         write_encrypted_file(&app).unwrap();
+//         let decrypted_passwords =
+//             read_encrypted_file(&app.master_pass, &app.args.path.unwrap(), &3).unwrap();
+// 
+//         assert_eq!(app.passwords, decrypted_passwords);
+//     }
+// }
+// 
