@@ -8,13 +8,14 @@ anyhow = "1.0.87"
 base64 = "0.22.1"
 clap = { version = "4.5.17", features = ["derive"] }
 colored = "2.2.0"
-dialoguer = { version = "0.11.0", features = [] }
+dialoguer = { version = "0.11.0", features = ["completion", "fuzzy-matcher", "fuzzy-select", "history"] }
 dirs = "5.0.1"
-log = "0.4.22"
+encodify = "1.0.2"
+log = { version = "0.4.22", features = ["serde"] }
 orion = { version = "0.17.7", features = ["serde"] }
-rand = "0.8.5"
+rand = { version = "0.8.5", features = ["nightly", "serde", "log"] }
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.128"
 simplelog = "0.12.2"
 smart-default = "0.7.1"
-toml = "0.8.19"
+toml = { version = "0.8.19", features = ["indexmap", "preserve_order"] }
