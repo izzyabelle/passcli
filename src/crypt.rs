@@ -1,6 +1,7 @@
 use anyhow::Result;
 use base64::engine::general_purpose;
 use base64::Engine;
+use encodify::base64::{Alphabet, Base64};
 use orion::{aead, kdf};
 use std::fs::File;
 use std::io::{Read, Write};
@@ -24,7 +25,7 @@ pub fn write_encrypted_file(app: &App) -> Result<i32> {
     // write data to file with salt unencrypted
     let tuple_data = serde_json::to_vec(&(salt, ciphertext))?;
 
-    let encoded_data = general_purpose::STANDARD.encode(&tuple_data);
+    let encoded_data = Base64::new(Alphabet::Standard).encode(&tuple_data);
 
     let mut file = File::create(app.path.clone())?;
     file.write_all(encoded_data.as_bytes())?;

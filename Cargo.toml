@@ -1,3 +1,4 @@
+cargo-features = ["codegen-backend"]
 [package]
 name = "passcli"
 version = "0.2.0"
