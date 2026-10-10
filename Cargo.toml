@@ -1,7 +1,6 @@
-cargo-features = ["codegen-backend"]
 [package]
 name = "passcli"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
@@ -9,14 +8,14 @@ anyhow = "1.0.87"
 base64 = "0.22.1"
 clap = { version = "4.5.17", features = ["derive"] }
 colored = "2.2.0"
-dialoguer = { version = "0.11.0", features = ["completion", "fuzzy-matcher", "fuzzy-select", "history"] }
+dialoguer = "0.11.0" 
 dirs = "5.0.1"
 encodify = "1.0.2"
 log = { version = "0.4.22", features = ["serde"] }
 orion = { version = "0.17.7", features = ["serde"] }
-rand = { version = "0.8.5", features = ["nightly", "serde", "log"] }
+rand = { version = "0.8.5", features = ["serde"] }
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.128"
 simplelog = "0.12.2"
 smart-default = "0.7.1"
-toml = { version = "0.8.19", features = ["indexmap", "preserve_order"] }
+toml = { version = "0.8.19", features = ["preserve_order"] }

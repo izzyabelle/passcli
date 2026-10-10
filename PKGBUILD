@@ -1,0 +1,24 @@
+pkgname=passcli
+pkgver=0.3.0
+pkgrel=1
+pkgdesc="CLI password manager"
+arch=('x86_64')
+license=('MIT')
+makedepends=('cargo')
+source=("https://codeberg.org/izzybelle/passcli.git")   
+sha256sums=('SKIP')
+options=('!debug')
+
+prepare() {
+  export RUSTUP_TOOLCHAIN=nightly
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  export RUSTUP_TOOLCHAIN=nightly CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+package() {
+  install -Dm0755 -t "$pkgdir/usr/bin/" "target/release/$pkgname"
+}
