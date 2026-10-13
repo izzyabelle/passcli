@@ -1,4 +1,4 @@
-./src
-./target
-./passcli
+src/
+target/
+passcli
 *.pkg.tar.zst
