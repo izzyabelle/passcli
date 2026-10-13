@@ -1,4 +1,4 @@
-pkgname=passcli
+pkgname=passcli-git
 pkgver=0.3.0
 pkgrel=1
 pkgdesc="CLI password manager"
@@ -10,15 +10,18 @@ sha256sums=('SKIP')
 options=('!debug')
 
 prepare() {
+  cd "$pkgname"
   export RUSTUP_TOOLCHAIN=nightly
   cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
 }
 
 build() {
+  cd "$pkgname"
   export RUSTUP_TOOLCHAIN=nightly CARGO_TARGET_DIR=target
   cargo build --frozen --release
 }
 
 package() {
+  cd "$pkgname"
   install -Dm0755 -t "$pkgdir/usr/bin/" "target/release/$pkgname"
 }
